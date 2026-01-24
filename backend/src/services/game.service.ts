@@ -187,40 +187,40 @@ export class GameService {
 
   // Close round - stop accepting bets
   static async closeRound(roundId: string): Promise<IRound> {
-    const round = await Round.findById(roundId);
+    // Use atomic update to prevent race conditions
+    const round = await Round.findOneAndUpdate(
+      { _id: roundId, status: 'open' },
+      { $set: { status: 'closed', endTime: new Date() } },
+      { new: true }
+    );
 
     if (!round) {
-      throw new Error('Round not found');
+      throw new Error('Round not found or not open');
     }
-
-    if (round.status !== 'open') {
-      throw new Error('Round is not open');
-    }
-
-    round.status = 'closed';
-    round.endTime = new Date();
-    await round.save();
 
     return round as IRound;
   }
 
   // Draw winning number
   static async drawWinner(roundId: string): Promise<IRound> {
-    const round = await Round.findById(roundId);
+    const winningDigit = this.generateWinningDigit();
+
+    // Use atomic update to prevent race conditions
+    const round = await Round.findOneAndUpdate(
+      { _id: roundId, status: 'closed' },
+      {
+        $set: {
+          status: 'drawing',
+          winningDigit,
+          drawTime: new Date(),
+        },
+      },
+      { new: true }
+    );
 
     if (!round) {
-      throw new Error('Round not found');
+      throw new Error('Round not found or not closed');
     }
-
-    if (round.status !== 'closed') {
-      throw new Error('Round must be closed before drawing');
-    }
-
-    round.status = 'drawing';
-    const winningDigit = this.generateWinningDigit();
-    round.winningDigit = winningDigit;
-    round.drawTime = new Date();
-    await round.save();
 
     // Calculate winnings for all paid bets
     await this.calculateWinnings(round);

@@ -33,11 +33,17 @@ export class RoundScheduler {
   private async scheduleNextRound(): Promise<void> {
     if (!this.running) return;
 
+    // Clear any existing timer
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+
     const round = await GameService.getCurrentRound();
     const roundStartTime = new Date(round.startTime).getTime();
     const now = Date.now();
     const elapsed = now - roundStartTime;
-    const remaining = Math.max(0, this.roundDurationMs - elapsed);
+    const remaining = Math.max(1000, this.roundDurationMs - elapsed); // At least 1 second
 
     // eslint-disable-next-line no-console
     console.log(
@@ -67,13 +73,23 @@ export class RoundScheduler {
       // eslint-disable-next-line no-console
       console.log(`[RoundScheduler] Closing round #${round.roundNumber}...`);
 
-      // Close round
-      await GameService.closeRound(round._id.toString());
+      // Close round (atomic update) - may return null if already closed
+      const closedRound = await GameService.closeRound(round._id.toString()).catch(() => null);
 
-      // Draw winner
+      if (!closedRound) {
+        // eslint-disable-next-line no-console
+        console.log(`[RoundScheduler] Round #${round.roundNumber} already processed, skipping...`);
+        await this.scheduleNextRound();
+        return;
+      }
+
+      // eslint-disable-next-line no-console
+      console.log(`[RoundScheduler] Round closed, status: ${closedRound.status}`);
+
+      // Draw winner (atomic update)
       // eslint-disable-next-line no-console
       console.log(`[RoundScheduler] Drawing winner for round #${round.roundNumber}...`);
-      const drawnRound = await GameService.drawWinner(round._id.toString());
+      const drawnRound = await GameService.drawWinner(closedRound._id.toString());
 
       // eslint-disable-next-line no-console
       console.log(`[RoundScheduler] Winning digit: ${drawnRound.winningDigit}`);
@@ -81,7 +97,7 @@ export class RoundScheduler {
       // Process payouts
       // eslint-disable-next-line no-console
       console.log(`[RoundScheduler] Processing payouts...`);
-      const payoutResult = await GameService.processPayouts(round._id.toString());
+      const payoutResult = await GameService.processPayouts(closedRound._id.toString());
 
       // eslint-disable-next-line no-console
       console.log(
