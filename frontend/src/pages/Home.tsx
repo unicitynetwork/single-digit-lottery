@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ChangeEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -9,6 +9,30 @@ import { config } from '../config';
 import './lottery.css';
 
 type BetsState = Record<number, string>;
+
+interface LockedBetsData {
+  roundNumber: number;
+  bets: Record<number, number>; // digit -> total amount
+}
+
+const LOCKED_BETS_KEY = 'lottery_locked_bets';
+
+function loadLockedBets(): LockedBetsData | null {
+  try {
+    const data = localStorage.getItem(LOCKED_BETS_KEY);
+    return data ? JSON.parse(data) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLockedBets(data: LockedBetsData): void {
+  localStorage.setItem(LOCKED_BETS_KEY, JSON.stringify(data));
+}
+
+function clearLockedBets(): void {
+  localStorage.removeItem(LOCKED_BETS_KEY);
+}
 
 const DIGIT_COLORS = [
   '#ff6b6b', '#ffd700', '#00ff88', '#4ecdc4', '#a855f7',
@@ -23,12 +47,16 @@ function formatTime(seconds: number): string {
 
 export function Home() {
   const [bets, setBets] = useState<BetsState>({0:'',1:'',2:'',3:'',4:'',5:'',6:'',7:'',8:'',9:''});
+  const [lockedBets, setLockedBets] = useState<Record<number, number>>({});
   const [userNametag, setUserNametag] = useState('');
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [nametagStatus, setNametagStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
   const [nametagError, setNametagError] = useState<string | null>(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
+  const [roundResult, setRoundResult] = useState<{ show: boolean; won: boolean; amount: number } | null>(null);
   const queryClient = useQueryClient();
+  const prevRoundNumberRef = useRef<number | null>(null);
+  const prevLockedBetsRef = useRef<Record<number, number>>({});
 
   // Queries using custom hooks
   const { data: round, isLoading } = useCurrentRound();
@@ -42,6 +70,42 @@ export function Home() {
     ?.filter(r => r.winningDigit !== null)
     .map(r => r.winningDigit as number)
     .slice(0, 12) || [];
+
+  // Load locked bets from localStorage and handle round changes
+  useEffect(() => {
+    if (!round?.roundNumber) return;
+
+    const saved = loadLockedBets();
+
+    if (saved && saved.roundNumber === round.roundNumber) {
+      // Same round - restore locked bets
+      setLockedBets(saved.bets);
+      prevLockedBetsRef.current = saved.bets;
+    } else if (prevRoundNumberRef.current !== null && prevRoundNumberRef.current !== round.roundNumber) {
+      // Round changed - calculate result from previous bets
+      const prevBets = prevLockedBetsRef.current;
+      const hadBets = Object.values(prevBets).some(v => v > 0);
+
+      if (hadBets && previousRound?.winningDigit !== null && previousRound?.winningDigit !== undefined) {
+        const winningDigit = previousRound.winningDigit;
+        const betOnWinner = prevBets[winningDigit] || 0;
+        if (betOnWinner > 0) {
+          setRoundResult({ show: true, won: true, amount: betOnWinner * 9 });
+        } else {
+          setRoundResult({ show: true, won: false, amount: 0 });
+        }
+        // Auto-hide after 5 seconds
+        setTimeout(() => setRoundResult(null), 5000);
+      }
+
+      // Clear locked bets
+      clearLockedBets();
+      setLockedBets({});
+      prevLockedBetsRef.current = {};
+    }
+
+    prevRoundNumberRef.current = round.roundNumber;
+  }, [round?.roundNumber, previousRound?.winningDigit]);
 
   // Validate nametag
   const validateNametag = useCallback(async (nametag: string) => {
@@ -155,6 +219,8 @@ export function Home() {
     const num = parseInt(val, 10);
     return sum + ((!isNaN(num) && num > 0) ? num : 0);
   }, 0);
+
+  const totalLockedBets = Object.values(lockedBets).reduce((sum, val) => sum + val, 0);
 
   const isRoundOpen = round?.status === 'open';
   const canPlaceBet = currentBet > 0 && isRoundOpen && !placeBetMutation.isPending;
@@ -301,7 +367,25 @@ export function Home() {
           )}
         </div>
 
-        <div className="h-4" />
+        {/* Round Result - fixed height to prevent layout jump */}
+        <div className="h-16 flex items-center justify-center mb-2">
+          {roundResult?.show && (
+            <div className="text-center">
+              {roundResult.won ? (
+                <>
+                  <div className="text-2xl font-extrabold text-[#00ff88] drop-shadow-[0_0_20px_#00ff88]">
+                    YOU WIN!
+                  </div>
+                  <div className="text-lg text-[#ffd700] font-rajdhani mt-1">
+                    +{roundResult.amount} UCT
+                  </div>
+                </>
+              ) : (
+                <div className="text-xl font-bold text-[#ff4444]">Better luck next time!</div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Betting Area */}
         <div className="bg-linear-to-br from-[#0f0f1a] to-[#1a1a2e] border border-white/5 rounded-2xl p-5 mb-3">
@@ -380,27 +464,63 @@ export function Home() {
           </div>
         </div>
 
-        {/* Pool Info */}
-        <div className="bg-linear-to-br from-[#0f0f1a] to-[#1a1a2e] border border-white/5 rounded-2xl p-4 px-5">
-          <div className="flex justify-between items-center">
-            <div>
-              <span className="text-gray-500 text-[11px] tracking-widest font-rajdhani">CURRENT POOL</span>
-              <div className="text-gray-600 text-[9px] font-rajdhani mt-0.5">
-                Winners split the losers' bets
-              </div>
+        {/* My Locked Bets */}
+        <div className="bg-linear-to-br from-[#0f0f1a] to-[#1a1a2e] border border-white/5 rounded-2xl p-4 px-5 mb-3">
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-gray-500 text-[11px] tracking-widest font-rajdhani">MY BETS THIS ROUND</span>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500 text-[10px] font-rajdhani">TOTAL:</span>
+              <span
+                className="text-lg font-bold font-orbitron"
+                style={{
+                  color: totalLockedBets > 0 ? '#ffd700' : '#444',
+                  textShadow: totalLockedBets > 0 ? '0 0 10px #ffd70044' : 'none'
+                }}
+              >
+                {totalLockedBets} <span className="text-[10px] text-gray-400">{config.tokenSymbol}</span>
+              </span>
             </div>
-            <span
-              className="text-lg font-bold font-orbitron"
-              style={{
-                color: poolSize > 0 ? '#ffd700' : '#444',
-                textShadow: poolSize > 0 ? '0 0 10px #ffd70044' : 'none'
-              }}
-            >
-              {poolSize} <span className="text-[10px] text-gray-400">{config.tokenSymbol}</span>
-            </span>
           </div>
+
+          {totalLockedBets > 0 ? (
+            <div className="flex gap-1.5">
+              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(digit => {
+                const total = lockedBets[digit] || 0;
+                return (
+                  <div
+                    key={digit}
+                    className="flex-1 text-center"
+                    style={{ opacity: total > 0 ? 1 : 0.3 }}
+                  >
+                    <div
+                      className="w-8 h-8 mx-auto mb-1 rounded-full flex items-center justify-center font-bold text-[13px] font-orbitron"
+                      style={{
+                        background: total > 0 ? DIGIT_COLORS[digit] : '#1a1a2e',
+                        color: total > 0 ? '#fff' : '#444',
+                        boxShadow: total > 0 ? `0 0 10px ${DIGIT_COLORS[digit]}66` : 'none',
+                        border: total > 0 ? 'none' : '1px solid #333'
+                      }}
+                    >
+                      {digit}
+                    </div>
+                    <div
+                      className="text-xs font-bold font-rajdhani"
+                      style={{ color: total > 0 ? DIGIT_COLORS[digit] : '#333' }}
+                    >
+                      {total > 0 ? total : '-'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-gray-600 text-xs text-center py-2.5 font-rajdhani">
+              No bets placed yet
+            </div>
+          )}
         </div>
-      </main>
+
+        </main>
 
       {/* Footer */}
       <footer className="p-2 text-center text-gray-600 text-[10px] font-rajdhani border-t border-white/5">
