@@ -328,9 +328,6 @@ export class GameService {
       `[GameService] Pool: ${round.totalPool} UCT, Winning digit: ${round.winningDigit}, Bets on winner: ${totalWinningBets} UCT`
     );
 
-    // Calculate losing bets (bets not on winning digit)
-    const losingBets = round.totalPool - totalWinningBets;
-
     if (totalWinningBets === 0) {
       // No winners - entire pool goes to house fee
       const houseFee = round.totalPool;
@@ -344,23 +341,20 @@ export class GameService {
       return;
     }
 
-    // Calculate house fee (percentage of LOSING bets only)
+    // Round to 4 decimal places (0.0001)
+    const round4 = (n: number) => Math.round(n * 10000) / 10000;
+
+    // Calculate house fee from ENTIRE pool
     const houseFeePercent = config.houseFeePercent;
-    const houseFee = Math.floor((losingBets * houseFeePercent) / 100);
-    const winningPool = losingBets - houseFee; // Pool to distribute among winners
+    const houseFee = round4((round.totalPool * houseFeePercent) / 100);
+    const poolAfterFee = round4(round.totalPool - houseFee);
 
     // eslint-disable-next-line no-console
     console.log(
-      `[GameService] Losing bets: ${losingBets} UCT, House fee: ${houseFee} UCT (${houseFeePercent}%), Winning pool: ${winningPool} UCT`
+      `[GameService] Pool: ${round.totalPool} UCT, House fee: ${houseFee} UCT (${houseFeePercent}%), Pool after fee: ${poolAfterFee} UCT`
     );
 
-    // Add house fee to commission
-    await this.addCommission(houseFee);
-
-    round.houseFee = houseFee;
-    await round.save();
-
-    // Distribute winnings: original bet + proportional share of winning pool
+    // Distribute winnings: proportional share of pool after fee
     let totalPayout = 0;
 
     for (const bet of bets) {
@@ -373,9 +367,8 @@ export class GameService {
       }
 
       if (userWinningBet > 0) {
-        // User gets: original bet back + proportional share of winning pool
-        const shareOfPool = Math.floor((userWinningBet / totalWinningBets) * winningPool);
-        const winnings = userWinningBet + shareOfPool;
+        // User gets: proportional share of pool after fee (rounded to 0.0001)
+        const winnings = round4((userWinningBet / totalWinningBets) * poolAfterFee);
 
         bet.winnings = winnings;
         bet.payoutStatus = 'pending';
@@ -385,11 +378,24 @@ export class GameService {
 
         // eslint-disable-next-line no-console
         console.log(
-          `[GameService] @${bet.userNametag} bet ${userWinningBet} on ${round.winningDigit}, wins ${winnings} UCT (${userWinningBet} + ${shareOfPool})`
+          `[GameService] @${bet.userNametag} bet ${userWinningBet} on ${round.winningDigit}, wins ${winnings} UCT`
         );
       }
     }
 
+    // Any remainder from rounding goes to commission
+    const remainder = round4(poolAfterFee - totalPayout);
+    const totalCommission = round4(houseFee + remainder);
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[GameService] Total payout: ${totalPayout} UCT, Remainder: ${remainder} UCT, Commission: ${totalCommission} UCT`
+    );
+
+    // Add commission (fee + remainder)
+    await this.addCommission(totalCommission);
+
+    round.houseFee = totalCommission;
     round.totalPayout = totalPayout;
     await round.save();
   }
