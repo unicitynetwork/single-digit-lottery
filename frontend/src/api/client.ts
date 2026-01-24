@@ -1,0 +1,72 @@
+import axios from 'axios';
+
+export const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || '/api',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Types
+export interface Round {
+  _id: string;
+  roundNumber: number;
+  status: 'open' | 'closed' | 'drawing' | 'paying' | 'completed';
+  winningDigit: number | null;
+  totalPool: number;
+  totalPayout: number;
+  startTime: string;
+  endTime: string | null;
+  drawTime: string | null;
+}
+
+export interface BetItem {
+  digit: number;
+  amount: number;
+}
+
+export interface Bet {
+  _id: string;
+  roundId: string;
+  userNametag: string;
+  bets: BetItem[];
+  totalAmount: number;
+  invoiceId: string;
+  paymentStatus: 'pending' | 'paid' | 'expired' | 'failed';
+  winnings: number;
+  payoutStatus: 'none' | 'pending' | 'sent' | 'confirmed' | 'failed';
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  error?: string;
+}
+
+// API functions
+export const gameApi = {
+  getCurrentRound: () => api.get<ApiResponse<Round>>('/game/round'),
+
+  placeBets: (userNametag: string, bets: BetItem[]) =>
+    api.post<ApiResponse<{ bet: Bet; invoice: { invoiceId: string; amount: number } }>>(
+      '/game/bet',
+      { userNametag, bets }
+    ),
+
+  getRoundHistory: (limit = 10) =>
+    api.get<ApiResponse<Round[]>>('/game/history', { params: { limit } }),
+
+  getUserBets: (userNametag: string, limit = 20) =>
+    api.get<ApiResponse<Bet[]>>(`/game/bets/${userNametag}`, { params: { limit } }),
+
+  getRoundBets: (roundId: string) =>
+    api.get<ApiResponse<Bet[]>>(`/game/round/${roundId}/bets`),
+};
+
+export const userApi = {
+  getOrCreateUser: (nametag: string) =>
+    api.post<ApiResponse<{ nametag: string }>>('/user', { nametag }),
+
+  getUser: (nametag: string) =>
+    api.get<ApiResponse<{ nametag: string }>>(`/user/${nametag}`),
+};

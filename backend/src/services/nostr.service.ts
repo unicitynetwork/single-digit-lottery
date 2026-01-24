@@ -21,6 +21,7 @@ export interface NostrConfig {
   dataDir: string;
   paymentTimeoutSeconds: number;
   coinId: string;
+  mockMode?: boolean;
 }
 
 export interface Invoice {
@@ -355,6 +356,23 @@ export class NostrService {
   }
 
   async createInvoice(userNametag: string, amount: number): Promise<Invoice> {
+    const recipientNametag = this.identityService.getNametag();
+
+    // Mock mode for development
+    if (this.config.mockMode) {
+      const mockId = `mock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      // eslint-disable-next-line no-console
+      console.log(`[NostrService] MOCK: Invoice created for @${userNametag}: ${mockId}`);
+      return {
+        invoiceId: mockId,
+        amount,
+        recipientNametag,
+        status: 'pending',
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + this.config.paymentTimeoutSeconds * 1000),
+      };
+    }
+
     if (!this.client) {
       throw new Error('Nostr client not connected');
     }
@@ -364,8 +382,6 @@ export class NostrService {
     if (!userPubkey) {
       throw new Error(`Cannot resolve pubkey for nametag: ${userNametag}`);
     }
-
-    const recipientNametag = this.identityService.getNametag();
 
     // Send payment request to user
     const eventId = await this.client.sendPaymentRequest(userPubkey, {

@@ -1,24 +1,33 @@
+// dotenv is preloaded via --import dotenv/config
 import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
 import { connectDB } from './config/database.js';
 import gameRoutes from './routes/game.routes.js';
-import userRoutes from './routes/user.routes.js';
-
-dotenv.config();
+import { initializeServices } from './services/index.js';
 
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(helmet());
-app.use(cors());
+app.use(
+  cors({
+    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://172.19.142.73:5173'],
+    credentials: true,
+  })
+);
 app.use(express.json());
+
+// Debug logging
+app.use((req, _res, next) => {
+  // eslint-disable-next-line no-console
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`, req.body);
+  next();
+});
 
 // Routes
 app.use('/api/game', gameRoutes);
-app.use('/api/user', userRoutes);
 
 // Health check
 app.get('/health', (_req, res) => {
@@ -29,10 +38,17 @@ app.get('/health', (_req, res) => {
 const startServer = async (): Promise<void> => {
   try {
     await connectDB();
+    // eslint-disable-next-line no-console
+    console.log('Initializing services...');
+    await initializeServices();
+    // eslint-disable-next-line no-console
+    console.log('Services initialized');
     app.listen(PORT, () => {
+      // eslint-disable-next-line no-console
       console.log(`Server running on port ${PORT}`);
     });
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.error('Failed to start server:', error);
     process.exit(1);
   }
