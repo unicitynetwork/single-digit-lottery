@@ -33,6 +33,15 @@ export interface Invoice {
   expiresAt: Date;
 }
 
+export interface BetDetail {
+  digit: number;
+  amount: number;
+}
+
+// UCT has 18 decimals
+const TOKEN_DECIMALS = 18n;
+const DECIMALS_MULTIPLIER = 10n ** TOKEN_DECIMALS;
+
 export interface TokenTransfer {
   transferId: string;
   toNametag: string;
@@ -254,6 +263,7 @@ export class NostrService {
   }
 
   private async finalizeTransfer(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     sourceToken: Token<any>,
     transferTx: TransferTransaction
   ): Promise<boolean> {
@@ -340,11 +350,24 @@ export class NostrService {
     }
 
     const cleanId = nametag.replace('@unicity', '').replace('@', '').trim();
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] Resolving nametag: @${cleanId}...`);
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const pubkey = await this.client.queryPubkeyByNametag(cleanId);
-      if (pubkey) {
-        return pubkey;
+      try {
+        const pubkey = await this.client.queryPubkeyByNametag(cleanId);
+        if (pubkey) {
+          // eslint-disable-next-line no-console
+          console.log(`[NostrService] Resolved @${cleanId} -> ${pubkey.slice(0, 16)}...`);
+          return pubkey;
+        }
+        // eslint-disable-next-line no-console
+        console.log(
+          `[NostrService] Nametag @${cleanId} not found (attempt ${attempt}/${maxRetries})`
+        );
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error(`[NostrService] Error resolving nametag (attempt ${attempt}):`, error);
       }
 
       if (attempt < maxRetries) {
@@ -355,7 +378,25 @@ export class NostrService {
     return null;
   }
 
-  async createInvoice(userNametag: string, amount: number): Promise<Invoice> {
+  // Public method to validate nametag exists
+  async validateNametag(
+    nametag: string
+  ): Promise<{ valid: boolean; pubkey?: string; error?: string }> {
+    if (!this.connected || !this.client) {
+      return { valid: false, error: 'Nostr service not connected' };
+    }
+
+    const pubkey = await this.resolvePubkey(nametag, 2);
+    if (pubkey) {
+      return { valid: true, pubkey };
+    }
+    return {
+      valid: false,
+      error: `Nametag @${nametag} not found. Make sure it exists and has Nostr binding.`,
+    };
+  }
+
+  async createInvoice(userNametag: string, amount: number, bets: BetDetail[]): Promise<Invoice> {
     const recipientNametag = this.identityService.getNametag();
 
     // Mock mode for development
@@ -374,21 +415,35 @@ export class NostrService {
     }
 
     if (!this.client) {
-      throw new Error('Nostr client not connected');
+      throw new Error('Nostr client not connected. Check relay connection.');
     }
+
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] Creating invoice for @${userNametag}, amount: ${amount}`);
 
     // Resolve user's pubkey
     const userPubkey = await this.resolvePubkey(userNametag);
     if (!userPubkey) {
-      throw new Error(`Cannot resolve pubkey for nametag: ${userNametag}`);
+      throw new Error(
+        `Nametag @${userNametag} not found. Make sure it exists and has Nostr binding published.`
+      );
     }
 
     // Send payment request to user
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] Sending payment request to ${userPubkey.slice(0, 16)}...`);
+
+    // Convert amount to token units (18 decimals)
+    const amountWithDecimals = BigInt(amount) * DECIMALS_MULTIPLIER;
+
+    // Format bet details for message
+    const betsStr = bets.map((b) => `#${b.digit}:${b.amount}`).join(', ');
+
     const eventId = await this.client.sendPaymentRequest(userPubkey, {
-      amount: BigInt(amount),
+      amount: amountWithDecimals,
       coinId: this.config.coinId,
       recipientNametag,
-      message: `Lottery bet: ${amount} tokens`,
+      message: `Lottery bets: ${betsStr}`,
     });
 
     // eslint-disable-next-line no-console

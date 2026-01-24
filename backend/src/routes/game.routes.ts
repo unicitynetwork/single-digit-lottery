@@ -6,6 +6,12 @@ const router = Router();
 // GET /api/game/round - Get current round
 router.get('/round', GameController.getCurrentRound);
 
+// GET /api/game/round/previous - Get previous round with winning number
+router.get('/round/previous', GameController.getPreviousRound);
+
+// GET /api/game/validate/:nametag - Validate nametag exists on Nostr
+router.get('/validate/:nametag', GameController.validateNametag);
+
 // POST /api/game/bet - Place bets (payment request sent via Nostr)
 router.post('/bet', GameController.placeBets);
 

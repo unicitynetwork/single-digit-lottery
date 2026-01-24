@@ -18,6 +18,7 @@ export interface Round {
   startTime: string;
   endTime: string | null;
   drawTime: string | null;
+  roundDurationSeconds?: number;
 }
 
 export interface BetItem {
@@ -47,6 +48,11 @@ export interface ApiResponse<T> {
 export const gameApi = {
   getCurrentRound: () => api.get<ApiResponse<Round>>('/game/round'),
 
+  getPreviousRound: () => api.get<ApiResponse<Round | null>>('/game/round/previous'),
+
+  validateNametag: (nametag: string) =>
+    api.get<ApiResponse<{ nametag: string; pubkey: string }>>(`/game/validate/${nametag}`),
+
   placeBets: (userNametag: string, bets: BetItem[]) =>
     api.post<ApiResponse<{ bet: Bet; invoice: { invoiceId: string; amount: number } }>>(
       '/game/bet',
@@ -61,12 +67,4 @@ export const gameApi = {
 
   getRoundBets: (roundId: string) =>
     api.get<ApiResponse<Bet[]>>(`/game/round/${roundId}/bets`),
-};
-
-export const userApi = {
-  getOrCreateUser: (nametag: string) =>
-    api.post<ApiResponse<{ nametag: string }>>('/user', { nametag }),
-
-  getUser: (nametag: string) =>
-    api.get<ApiResponse<{ nametag: string }>>(`/user/${nametag}`),
 };

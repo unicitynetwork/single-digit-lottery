@@ -10,18 +10,29 @@ export class GameService {
     return crypto.randomInt(0, 10);
   }
 
-  // Create new round
+  // Create new round (handles race condition with duplicate key)
   static async createRound(): Promise<IRound> {
     const lastRound = await Round.findOne().sort({ roundNumber: -1 });
     const roundNumber = lastRound ? lastRound.roundNumber + 1 : 1;
 
-    const round = new Round({
-      roundNumber,
-      status: 'open',
-      startTime: new Date(),
-    });
+    try {
+      const round = new Round({
+        roundNumber,
+        status: 'open',
+        startTime: new Date(),
+      });
 
-    return round.save() as unknown as IRound;
+      return (await round.save()) as unknown as IRound;
+    } catch (error) {
+      // Handle duplicate key error (race condition)
+      if (error instanceof Error && 'code' in error && (error as { code: number }).code === 11000) {
+        const existingRound = await Round.findOne({ roundNumber });
+        if (existingRound) {
+          return existingRound as IRound;
+        }
+      }
+      throw error;
+    }
   }
 
   // Get current open round or create new one
@@ -63,8 +74,8 @@ export class GameService {
     // Calculate total amount
     const totalAmount = bets.reduce((sum, bet) => sum + bet.amount, 0);
 
-    // Create invoice via Nostr
-    const invoice = await nostrService.createInvoice(userNametag, totalAmount);
+    // Create invoice via Nostr (pass bets for message details)
+    const invoice = await nostrService.createInvoice(userNametag, totalAmount, bets);
 
     // Create bet record
     const betRecord = new Bet({
@@ -228,6 +239,11 @@ export class GameService {
     }
 
     return { processed, failed };
+  }
+
+  // Get previous completed round (with winning digit)
+  static async getPreviousRound(): Promise<IRound | null> {
+    return Round.findOne({ status: 'completed' }).sort({ roundNumber: -1 });
   }
 
   // Get round history

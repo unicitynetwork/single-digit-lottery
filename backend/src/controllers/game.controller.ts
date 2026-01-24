@@ -1,12 +1,53 @@
 import { Request, Response } from 'express';
 import { GameService } from '../services/game.service.js';
+import { nostrService } from '../services/index.js';
 import { IBetItem } from '../models/game.model.js';
+import { config } from '../env.js';
 
 export class GameController {
-  // Get current round info
+  // Validate nametag exists on Nostr
+  static async validateNametag(req: Request, res: Response): Promise<void> {
+    try {
+      const nametag = req.params.nametag as string;
+
+      if (!nametag) {
+        res.status(400).json({ success: false, error: 'Nametag is required' });
+        return;
+      }
+
+      const result = await nostrService.validateNametag(nametag);
+
+      if (result.valid) {
+        res.json({ success: true, data: { nametag, pubkey: result.pubkey } });
+      } else {
+        res.status(404).json({ success: false, error: result.error });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  }
+  // Get current round info with duration for timer
   static async getCurrentRound(_req: Request, res: Response): Promise<void> {
     try {
       const round = await GameService.getCurrentRound();
+      res.json({
+        success: true,
+        data: {
+          ...round.toObject(),
+          roundDurationSeconds: config.roundDurationSeconds,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  }
+
+  // Get previous round with winning number
+  static async getPreviousRound(_req: Request, res: Response): Promise<void> {
+    try {
+      const round = await GameService.getPreviousRound();
       res.json({ success: true, data: round });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';

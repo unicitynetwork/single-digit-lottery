@@ -1,4 +1,6 @@
-// dotenv is preloaded via --import dotenv/config
+// MUST be first import - loads dotenv before anything else
+import { config } from './env.js';
+
 import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -7,7 +9,7 @@ import gameRoutes from './routes/game.routes.js';
 import { initializeServices } from './services/index.js';
 
 const app: Application = express();
-const PORT = process.env.PORT || 3000;
+const PORT = config.port;
 
 // Middleware
 app.use(helmet());
