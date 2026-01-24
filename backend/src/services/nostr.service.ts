@@ -401,7 +401,12 @@ export class NostrService {
     };
   }
 
-  async createInvoice(userNametag: string, amount: number, bets: BetDetail[]): Promise<Invoice> {
+  async createInvoice(
+    userNametag: string,
+    amount: number,
+    bets: BetDetail[],
+    roundNumber: number
+  ): Promise<Invoice> {
     const recipientNametag = this.identityService.getNametag();
 
     // Mock mode for development
@@ -424,7 +429,9 @@ export class NostrService {
     }
 
     // eslint-disable-next-line no-console
-    console.log(`[NostrService] Creating invoice for @${userNametag}, amount: ${amount}`);
+    console.log(
+      `[NostrService] Creating invoice for @${userNametag}, amount: ${amount}, round #${roundNumber}`
+    );
 
     // Resolve user's pubkey
     const userPubkey = await this.resolvePubkey(userNametag);
@@ -441,14 +448,14 @@ export class NostrService {
     // Convert amount to token units (18 decimals)
     const amountWithDecimals = BigInt(amount) * DECIMALS_MULTIPLIER;
 
-    // Format bet details for message
+    // Format bet details for message (includes round number for validation)
     const betsStr = bets.map((b) => `#${b.digit}:${b.amount}`).join(', ');
 
     const eventId = await this.client.sendPaymentRequest(userPubkey, {
       amount: amountWithDecimals,
       coinId: this.config.coinId,
       recipientNametag,
-      message: `Lottery bets: ${betsStr}`,
+      message: `Lottery Round #${roundNumber} - Bets: ${betsStr}`,
     });
 
     // eslint-disable-next-line no-console

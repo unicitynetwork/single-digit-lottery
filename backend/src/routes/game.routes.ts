@@ -24,4 +24,10 @@ router.get('/history', GameController.getRoundHistory);
 // GET /api/game/bets/:userNametag - Get user bet history
 router.get('/bets/:userNametag', GameController.getUserBets);
 
+// GET /api/game/commission - Get commission balance
+router.get('/commission', GameController.getCommissionBalance);
+
+// POST /api/game/commission/withdraw - Withdraw commission (developer only)
+router.post('/commission/withdraw', GameController.withdrawCommission);
+
 export default router;

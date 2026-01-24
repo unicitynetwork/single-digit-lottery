@@ -26,6 +26,10 @@ export const config = {
   // Round
   roundDurationSeconds: parseInt(process.env.ROUND_DURATION_SECONDS || '3600', 10),
 
+  // House fee (percentage of winning pool retained by developers)
+  houseFeePercent: parseFloat(process.env.HOUSE_FEE_PERCENT || '5'),
+  developerNametag: process.env.DEVELOPER_NAMETAG || '',
+
   // Data
   dataDir: process.env.DATA_DIR || './data',
 };

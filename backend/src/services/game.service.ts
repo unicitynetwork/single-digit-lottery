@@ -1,8 +1,7 @@
 import crypto from 'crypto';
-import { Round, Bet, IRound, IBet, IBetItem } from '../models/game.model.js';
+import { Round, Bet, Commission, IRound, IBet, IBetItem } from '../models/game.model.js';
 import { nostrService } from './index.js';
-
-const PAYOUT_MULTIPLIER = 9; // 1:9 payout ratio
+import { config } from '../env.js';
 
 export class GameService {
   // Generate cryptographically secure random digit
@@ -74,12 +73,18 @@ export class GameService {
     // Calculate total amount
     const totalAmount = bets.reduce((sum, bet) => sum + bet.amount, 0);
 
-    // Create invoice via Nostr (pass bets for message details)
-    const invoice = await nostrService.createInvoice(userNametag, totalAmount, bets);
+    // Create invoice via Nostr (pass bets and roundNumber for validation)
+    const invoice = await nostrService.createInvoice(
+      userNametag,
+      totalAmount,
+      bets,
+      round.roundNumber
+    );
 
     // Create bet record
     const betRecord = new Bet({
       roundId: round._id,
+      roundNumber: round.roundNumber,
       userNametag,
       bets,
       totalAmount,
@@ -96,7 +101,10 @@ export class GameService {
   }
 
   // Called when payment is confirmed (webhook or polling)
-  static async confirmPayment(invoiceId: string, txId: string): Promise<IBet> {
+  static async confirmPayment(
+    invoiceId: string,
+    txId: string
+  ): Promise<{ bet: IBet; accepted: boolean; refundReason?: string }> {
     const bet = await Bet.findOne({ invoiceId });
 
     if (!bet) {
@@ -104,9 +112,47 @@ export class GameService {
     }
 
     if (bet.paymentStatus === 'paid') {
-      return bet as IBet;
+      return { bet: bet as IBet, accepted: true };
     }
 
+    if (bet.paymentStatus === 'refunded') {
+      return { bet: bet as IBet, accepted: false, refundReason: 'Already refunded' };
+    }
+
+    // Check if round is still open
+    const round = await Round.findById(bet.roundId);
+
+    if (!round) {
+      // Round doesn't exist - refund
+      const reason = 'Round not found';
+      bet.paymentStatus = 'refunded';
+      bet.paymentTxId = txId;
+      bet.refundReason = reason;
+      await bet.save();
+
+      // Initiate refund
+      await this.refundPayment(bet, reason);
+      return { bet: bet as IBet, accepted: false, refundReason: reason };
+    }
+
+    if (round.status !== 'open') {
+      // Round is closed - refund
+      const reason = `Round #${round.roundNumber} is ${round.status}`;
+      bet.paymentStatus = 'refunded';
+      bet.paymentTxId = txId;
+      bet.refundReason = reason;
+      await bet.save();
+
+      // Initiate refund
+      await this.refundPayment(bet, reason);
+      return {
+        bet: bet as IBet,
+        accepted: false,
+        refundReason: reason,
+      };
+    }
+
+    // Round is open - accept payment
     bet.paymentStatus = 'paid';
     bet.paymentTxId = txId;
     await bet.save();
@@ -116,7 +162,25 @@ export class GameService {
       $inc: { totalPool: bet.totalAmount },
     });
 
-    return bet as IBet;
+    return { bet: bet as IBet, accepted: true };
+  }
+
+  // Refund payment to user
+  private static async refundPayment(bet: IBet, reason: string): Promise<void> {
+    try {
+      // eslint-disable-next-line no-console
+      console.log(`[GameService] Refunding ${bet.totalAmount} UCT to @${bet.userNametag}: ${reason}`);
+
+      const transfer = await nostrService.sendTokens(bet.userNametag, bet.totalAmount);
+      bet.refundTxId = transfer.transferId;
+      await bet.save();
+
+      // eslint-disable-next-line no-console
+      console.log(`[GameService] Refund sent: ${transfer.transferId}`);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(`[GameService] Refund failed:`, error);
+    }
   }
 
   // Close round - stop accepting bets
@@ -165,28 +229,107 @@ export class GameService {
     return round as IRound;
   }
 
-  // Calculate winnings for all bets in a round
+  // Calculate winnings using pari-mutuel logic (pool-based)
   static async calculateWinnings(round: IRound): Promise<void> {
     const bets = await Bet.find({
       roundId: round._id,
       paymentStatus: 'paid',
     });
 
+    if (bets.length === 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[GameService] No paid bets in round #${round.roundNumber}`);
+      return;
+    }
+
+    // Calculate total bets on the winning digit
+    let totalWinningBets = 0;
     for (const bet of bets) {
-      let winnings = 0;
+      for (const betItem of bet.bets) {
+        if (betItem.digit === round.winningDigit) {
+          totalWinningBets += betItem.amount;
+        }
+      }
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[GameService] Pool: ${round.totalPool} UCT, Winning digit: ${round.winningDigit}, Bets on winner: ${totalWinningBets} UCT`
+    );
+
+    // Calculate losing bets (bets not on winning digit)
+    const losingBets = round.totalPool - totalWinningBets;
+
+    if (totalWinningBets === 0) {
+      // No winners - entire pool goes to house fee
+      const houseFee = round.totalPool;
+      await this.addCommission(houseFee);
+
+      round.houseFee = houseFee;
+      await round.save();
+
+      // eslint-disable-next-line no-console
+      console.log(`[GameService] No winners - ${houseFee} UCT added to commission`);
+      return;
+    }
+
+    // Calculate house fee (percentage of LOSING bets only)
+    const houseFeePercent = config.houseFeePercent;
+    const houseFee = Math.floor((losingBets * houseFeePercent) / 100);
+    const winningPool = losingBets - houseFee; // Pool to distribute among winners
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[GameService] Losing bets: ${losingBets} UCT, House fee: ${houseFee} UCT (${houseFeePercent}%), Winning pool: ${winningPool} UCT`
+    );
+
+    // Add house fee to commission
+    await this.addCommission(houseFee);
+
+    round.houseFee = houseFee;
+    await round.save();
+
+    // Distribute winnings: original bet + proportional share of winning pool
+    let totalPayout = 0;
+
+    for (const bet of bets) {
+      let userWinningBet = 0;
 
       for (const betItem of bet.bets) {
         if (betItem.digit === round.winningDigit) {
-          winnings += betItem.amount * PAYOUT_MULTIPLIER;
+          userWinningBet += betItem.amount;
         }
       }
 
-      if (winnings > 0) {
+      if (userWinningBet > 0) {
+        // User gets: original bet back + proportional share of winning pool
+        const shareOfPool = Math.floor((userWinningBet / totalWinningBets) * winningPool);
+        const winnings = userWinningBet + shareOfPool;
+
         bet.winnings = winnings;
         bet.payoutStatus = 'pending';
         await bet.save();
+
+        totalPayout += winnings;
+
+        // eslint-disable-next-line no-console
+        console.log(
+          `[GameService] @${bet.userNametag} bet ${userWinningBet} on ${round.winningDigit}, wins ${winnings} UCT (${userWinningBet} + ${shareOfPool})`
+        );
       }
     }
+
+    round.totalPayout = totalPayout;
+    await round.save();
+  }
+
+  // Add commission to accumulated total
+  private static async addCommission(amount: number): Promise<void> {
+    await Commission.findOneAndUpdate(
+      {},
+      { $inc: { totalAccumulated: amount } },
+      { upsert: true }
+    );
   }
 
   // Process payouts (called by cron job)
@@ -259,5 +402,73 @@ export class GameService {
   // Get bets for a round
   static async getRoundBets(roundId: string): Promise<IBet[]> {
     return Bet.find({ roundId, paymentStatus: 'paid' });
+  }
+
+  // Get commission balance
+  static async getCommissionBalance(): Promise<{
+    totalAccumulated: number;
+    totalWithdrawn: number;
+    available: number;
+  }> {
+    const commission = await Commission.findOne();
+    if (!commission) {
+      return { totalAccumulated: 0, totalWithdrawn: 0, available: 0 };
+    }
+
+    return {
+      totalAccumulated: commission.totalAccumulated,
+      totalWithdrawn: commission.totalWithdrawn,
+      available: commission.totalAccumulated - commission.totalWithdrawn,
+    };
+  }
+
+  // Withdraw commission to developer nametag
+  static async withdrawCommission(
+    amount?: number
+  ): Promise<{ success: boolean; amount: number; txId?: string; error?: string }> {
+    const developerNametag = config.developerNametag;
+
+    if (!developerNametag) {
+      return { success: false, amount: 0, error: 'Developer nametag not configured' };
+    }
+
+    const balance = await this.getCommissionBalance();
+
+    if (balance.available <= 0) {
+      return { success: false, amount: 0, error: 'No commission available for withdrawal' };
+    }
+
+    // Withdraw all available if no amount specified
+    const withdrawAmount = amount ? Math.min(amount, balance.available) : balance.available;
+
+    if (withdrawAmount <= 0) {
+      return { success: false, amount: 0, error: 'Invalid withdrawal amount' };
+    }
+
+    try {
+      // eslint-disable-next-line no-console
+      console.log(`[GameService] Withdrawing ${withdrawAmount} UCT to @${developerNametag}`);
+
+      const transfer = await nostrService.sendTokens(developerNametag, withdrawAmount);
+
+      // Update commission record
+      await Commission.findOneAndUpdate(
+        {},
+        {
+          $inc: { totalWithdrawn: withdrawAmount },
+          lastWithdrawalAt: new Date(),
+        }
+      );
+
+      // eslint-disable-next-line no-console
+      console.log(`[GameService] Commission withdrawal successful: ${transfer.transferId}`);
+
+      return { success: true, amount: withdrawAmount, txId: transfer.transferId };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      // eslint-disable-next-line no-console
+      console.error(`[GameService] Commission withdrawal failed:`, error);
+      return { success: false, amount: 0, error: message };
+    }
   }
 }

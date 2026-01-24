@@ -117,4 +117,44 @@ export class GameController {
       res.status(500).json({ success: false, error: message });
     }
   }
+
+  // Get commission balance
+  static async getCommissionBalance(_req: Request, res: Response): Promise<void> {
+    try {
+      const balance = await GameService.getCommissionBalance();
+      res.json({ success: true, data: balance });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  }
+
+  // Withdraw commission (developer only)
+  static async withdrawCommission(req: Request, res: Response): Promise<void> {
+    try {
+      // Verify developer nametag from request matches config
+      const { nametag, amount } = req.body as { nametag: string; amount?: number };
+
+      if (!nametag) {
+        res.status(400).json({ success: false, error: 'Developer nametag required' });
+        return;
+      }
+
+      if (nametag !== config.developerNametag) {
+        res.status(403).json({ success: false, error: 'Unauthorized: Invalid developer nametag' });
+        return;
+      }
+
+      const result = await GameService.withdrawCommission(amount);
+
+      if (result.success) {
+        res.json({ success: true, data: result });
+      } else {
+        res.status(400).json({ success: false, error: result.error });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  }
 }

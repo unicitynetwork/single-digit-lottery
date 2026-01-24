@@ -9,12 +9,15 @@ export interface IBetItem {
 // Bet document - one per user per round (can contain multiple digit bets)
 export interface IBet extends Document {
   roundId: mongoose.Types.ObjectId;
+  roundNumber: number;
   userNametag: string;
   bets: IBetItem[];
   totalAmount: number;
   invoiceId: string;
-  paymentStatus: 'pending' | 'paid' | 'expired' | 'failed';
+  paymentStatus: 'pending' | 'paid' | 'expired' | 'failed' | 'refunded';
   paymentTxId: string | null;
+  refundTxId: string | null;
+  refundReason: string | null;
   winnings: number;
   payoutStatus: 'none' | 'pending' | 'sent' | 'confirmed' | 'failed';
   payoutTxId: string | null;
@@ -47,6 +50,11 @@ const betSchema = new Schema<IBet>(
       required: true,
       index: true,
     },
+    roundNumber: {
+      type: Number,
+      required: true,
+      index: true,
+    },
     userNametag: {
       type: String,
       required: true,
@@ -69,10 +77,18 @@ const betSchema = new Schema<IBet>(
     },
     paymentStatus: {
       type: String,
-      enum: ['pending', 'paid', 'expired', 'failed'],
+      enum: ['pending', 'paid', 'expired', 'failed', 'refunded'],
       default: 'pending',
     },
     paymentTxId: {
+      type: String,
+      default: null,
+    },
+    refundTxId: {
+      type: String,
+      default: null,
+    },
+    refundReason: {
       type: String,
       default: null,
     },
@@ -105,6 +121,7 @@ export interface IRound extends Document {
   winningDigit: number | null;
   totalPool: number;
   totalPayout: number;
+  houseFee: number;
   startTime: Date;
   endTime: Date | null;
   drawTime: Date | null;
@@ -138,6 +155,10 @@ const roundSchema = new Schema<IRound>(
       type: Number,
       default: 0,
     },
+    houseFee: {
+      type: Number,
+      default: 0,
+    },
     startTime: {
       type: Date,
       default: Date.now,
@@ -156,5 +177,34 @@ const roundSchema = new Schema<IRound>(
   }
 );
 
+// Commission tracking for developer withdrawals
+export interface ICommission extends Document {
+  totalAccumulated: number;
+  totalWithdrawn: number;
+  lastWithdrawalAt: Date | null;
+  updatedAt: Date;
+}
+
+const commissionSchema = new Schema<ICommission>(
+  {
+    totalAccumulated: {
+      type: Number,
+      default: 0,
+    },
+    totalWithdrawn: {
+      type: Number,
+      default: 0,
+    },
+    lastWithdrawalAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
 export const Bet = mongoose.model<IBet>('Bet', betSchema);
 export const Round = mongoose.model<IRound>('Round', roundSchema);
+export const Commission = mongoose.model<ICommission>('Commission', commissionSchema);

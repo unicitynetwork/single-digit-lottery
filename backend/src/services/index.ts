@@ -44,12 +44,20 @@ export async function initializeServices(): Promise<void> {
     const { GameService } = await import('./game.service.js');
 
     try {
-      await GameService.confirmPayment(invoiceId, txId);
-      // eslint-disable-next-line no-console
-      console.log(`[Services] Payment auto-confirmed for invoice: ${invoiceId}`);
+      const result = await GameService.confirmPayment(invoiceId, txId);
+
+      if (result.accepted) {
+        // eslint-disable-next-line no-console
+        console.log(`[Services] Payment accepted for invoice: ${invoiceId}`);
+      } else {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[Services] Payment rejected for invoice: ${invoiceId} - ${result.refundReason}`
+        );
+      }
     } catch (error) {
       // eslint-disable-next-line no-console
-      console.error(`[Services] Failed to auto-confirm payment:`, error);
+      console.error(`[Services] Failed to process payment:`, error);
     }
   });
 
