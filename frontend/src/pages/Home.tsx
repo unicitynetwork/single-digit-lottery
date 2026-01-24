@@ -210,6 +210,8 @@ export function Home() {
             const invoice = data.invoice;
             alert(`Payment request sent!\n\nCheck your wallet for the payment request.\n\nAmount: ${invoice.amount} ${config.tokenSymbol}\nInvoice ID: ${invoice.invoiceId.slice(0, 8)}...`);
             setBets({0:'',1:'',2:'',3:'',4:'',5:'',6:'',7:'',8:'',9:''});
+            // Refresh user bets from server
+            queryClient.invalidateQueries({ queryKey: ['userBetsCurrentRound'] });
           },
           onError: (error: unknown) => {
             const axiosError = error as { response?: { data?: { error?: string } }; message?: string };
@@ -230,6 +232,13 @@ export function Home() {
       saveNametag(userNametag);
       setShowConnectModal(false);
     }
+  };
+
+  const handleDisconnect = (): void => {
+    saveNametag('');
+    setUserNametag('');
+    setNametagStatus('idle');
+    setNametagError(null);
   };
 
   const currentBet = Object.values(bets).reduce((sum, val) => {
@@ -283,16 +292,27 @@ export function Home() {
           )}
         </nav>
 
-        <button
-          onClick={handleConnect}
-          className={`px-4 py-2 bg-transparent border-2 rounded-full font-orbitron text-[10px] font-semibold tracking-wide cursor-pointer ${
-            nametagStatus === 'valid'
-              ? 'border-[#00ff88] text-[#00ff88] shadow-[0_0_10px_#00ff8833]'
-              : 'border-gray-500 text-gray-500'
-          }`}
-        >
-          {nametagStatus === 'valid' ? userNametag.toUpperCase() : 'CONNECT'}
-        </button>
+        {nametagStatus === 'valid' ? (
+          <div className="flex items-center gap-2">
+            <span className="px-4 py-2 border-2 border-[#00ff88] text-[#00ff88] rounded-full font-orbitron text-[10px] font-semibold tracking-wide shadow-[0_0_10px_#00ff8833]">
+              {userNametag.toUpperCase()}
+            </span>
+            <button
+              onClick={handleDisconnect}
+              className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-[#ff6b6b] hover:border-[#ff6b6b] border border-gray-600 rounded-full transition-colors text-xs"
+              title="Disconnect"
+            >
+              ×
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleConnect}
+            className="px-4 py-2 bg-transparent border-2 border-gray-500 text-gray-500 rounded-full font-orbitron text-[10px] font-semibold tracking-wide cursor-pointer hover:border-gray-400 hover:text-gray-400 transition-colors"
+          >
+            CONNECT
+          </button>
+        )}
       </header>
 
       {/* Winning History */}
@@ -557,56 +577,174 @@ export function Home() {
 
       {/* Connect Modal */}
       {showConnectModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-linear-to-br from-[#0f0f1a] to-[#1a1a2e] border border-white/10 rounded-2xl p-6 w-full max-w-sm mx-4">
-            <h2 className="text-lg font-bold text-white mb-4 font-orbitron">Connect Wallet</h2>
-            <p className="text-gray-400 text-sm font-rajdhani mb-4">
-              Enter your Nostr nametag to connect
-            </p>
-            <div className="relative mb-4">
-              <input
-                type="text"
-                placeholder="Your nametag (e.g. alice)"
-                value={userNametag}
-                onChange={(e) => setUserNametag(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                className={`w-full bg-black/30 border rounded-lg px-4 py-3 text-sm font-rajdhani pr-10 outline-none ${
-                  nametagStatus === 'valid' ? 'border-[#00ff88]' :
-                  nametagStatus === 'invalid' ? 'border-[#ff6b6b]' :
-                  'border-white/20'
-                }`}
-              />
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                {nametagStatus === 'checking' && (
-                  <span className="text-gray-400 text-xs">...</span>
-                )}
-                {nametagStatus === 'valid' && (
-                  <span className="text-[#00ff88] text-lg">✓</span>
-                )}
-                {nametagStatus === 'invalid' && (
-                  <span className="text-[#ff6b6b] text-lg">✗</span>
-                )}
-              </div>
-            </div>
-            {nametagError && (
-              <p className="text-[#ff6b6b] text-xs font-rajdhani mb-4">{nametagError}</p>
-            )}
-            <div className="flex gap-3">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50">
+          {/* Modal Container */}
+          <div
+            className="relative w-full max-w-md mx-4 bg-linear-to-br from-[#0a0a0f] via-[#12121a] to-[#0a0a0f] rounded-2xl overflow-hidden"
+            style={{
+              boxShadow: '0 0 60px #00ff8822, 0 0 100px #00ff8811, inset 0 1px 0 #ffffff08'
+            }}
+          >
+            {/* Glowing border */}
+            <div
+              className="absolute inset-0 rounded-2xl pointer-events-none"
+              style={{
+                border: '1px solid #00ff8844',
+                boxShadow: 'inset 0 0 20px #00ff8811'
+              }}
+            />
+
+            {/* Grid background */}
+            <div
+              className="absolute inset-0 opacity-10 pointer-events-none"
+              style={{
+                backgroundImage: 'linear-gradient(#00ff8808 1px, transparent 1px), linear-gradient(90deg, #00ff8808 1px, transparent 1px)',
+                backgroundSize: '20px 20px'
+              }}
+            />
+
+            {/* Header */}
+            <div className="relative px-6 pt-5 pb-4 border-b border-[#00ff8822]">
               <button
                 onClick={() => setShowConnectModal(false)}
-                className="flex-1 px-4 py-2 bg-transparent border border-white/20 rounded-lg text-gray-400 text-sm font-rajdhani"
+                className="absolute top-4 right-4 w-7 h-7 flex items-center justify-center text-gray-600 hover:text-white transition-colors rounded-full hover:bg-white/5"
               >
-                Cancel
+                <span className="text-lg leading-none">×</span>
+              </button>
+
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-9 h-9 rounded-lg flex items-center justify-center text-lg"
+                  style={{
+                    background: 'linear-gradient(135deg, #00ff88 0%, #00cc6a 100%)',
+                    boxShadow: '0 0 15px #00ff8844'
+                  }}
+                >
+                  <span className="text-[#0a0a0f] font-black">?</span>
+                </div>
+                <div>
+                  <h2 className="text-sm font-extrabold text-white font-orbitron tracking-widest">
+                    CONNECT
+                  </h2>
+                  <p className="text-[8px] text-gray-500 font-rajdhani tracking-[3px]">
+                    NOSTR IDENTITY
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="relative px-6 py-5">
+              <p className="text-gray-500 text-xs font-rajdhani mb-5">
+                Enter your Nostr nametag to connect your wallet and start playing.
+              </p>
+
+              {/* Input Field */}
+              <div className="mb-4">
+                <label className="block text-[10px] text-gray-500 font-rajdhani tracking-widest mb-2">
+                  NAMETAG
+                </label>
+                <div className="relative">
+                  <div
+                    className="absolute inset-0 rounded-xl pointer-events-none transition-all duration-300"
+                    style={{
+                      boxShadow: nametagStatus === 'valid'
+                        ? '0 0 20px #00ff8833, inset 0 0 20px #00ff8811'
+                        : nametagStatus === 'invalid'
+                        ? '0 0 20px #ff6b6b33, inset 0 0 20px #ff6b6b11'
+                        : 'none'
+                    }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="alice"
+                    value={userNametag}
+                    onChange={(e) => setUserNametag(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                    className={`w-full bg-[#0a0a0f] rounded-xl px-4 py-3 text-sm font-rajdhani font-semibold pr-12 outline-none transition-all duration-300 ${
+                      nametagStatus === 'valid' ? 'border-2 border-[#00ff88] text-[#00ff88]' :
+                      nametagStatus === 'invalid' ? 'border-2 border-[#ff6b6b] text-[#ff6b6b]' :
+                      'border-2 border-[#222] text-white focus:border-[#00ff8866]'
+                    }`}
+                  />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                    {nametagStatus === 'checking' && (
+                      <div className="w-5 h-5 border-2 border-gray-600 border-t-[#00ff88] rounded-full animate-spin" />
+                    )}
+                    {nametagStatus === 'valid' && (
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center text-[#0a0a0f] font-bold text-xs"
+                        style={{
+                          background: 'linear-gradient(135deg, #00ff88 0%, #00cc6a 100%)',
+                          boxShadow: '0 0 10px #00ff8866'
+                        }}
+                      >
+                        ✓
+                      </div>
+                    )}
+                    {nametagStatus === 'invalid' && (
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-xs"
+                        style={{
+                          background: 'linear-gradient(135deg, #ff6b6b 0%, #cc4444 100%)',
+                          boxShadow: '0 0 10px #ff6b6b66'
+                        }}
+                      >
+                        ✗
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Error Message */}
+              {nametagError && (
+                <div
+                  className="mb-4 px-3 py-2 rounded-lg text-[#ff6b6b] text-[10px] font-rajdhani"
+                  style={{
+                    background: '#ff6b6b11',
+                    border: '1px solid #ff6b6b33'
+                  }}
+                >
+                  {nametagError}
+                </div>
+              )}
+
+              {/* Success State Info */}
+              {nametagStatus === 'valid' && (
+                <div
+                  className="mb-4 px-3 py-2 rounded-lg text-[#00ff88] text-[10px] font-rajdhani"
+                  style={{
+                    background: '#00ff8811',
+                    border: '1px solid #00ff8833'
+                  }}
+                >
+                  ✓ Nametag verified on Nostr network
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="relative px-6 pb-6 flex gap-3">
+              <button
+                onClick={() => setShowConnectModal(false)}
+                className="flex-1 px-4 py-2.5 bg-transparent border-2 border-[#333] rounded-xl text-gray-400 text-[10px] font-orbitron font-semibold tracking-widest hover:border-[#444] hover:text-gray-300 transition-all"
+              >
+                CANCEL
               </button>
               <button
                 onClick={handleConnectSubmit}
                 disabled={nametagStatus !== 'valid'}
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-rajdhani font-semibold ${
+                className={`flex-1 px-4 py-2.5 rounded-xl text-[10px] font-orbitron font-bold tracking-widest transition-all ${
                   nametagStatus === 'valid'
-                    ? 'bg-[#00ff88] text-[#0a0a0f]'
-                    : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                    ? 'text-[#0a0a0f] cursor-pointer'
+                    : 'bg-[#1a1a2e] text-gray-600 cursor-not-allowed border-2 border-[#222]'
                 }`}
+                style={nametagStatus === 'valid' ? {
+                  background: 'linear-gradient(135deg, #00ff88 0%, #00cc6a 100%)',
+                  boxShadow: '0 0 30px #00ff8844, 0 4px 15px #00ff8833'
+                } : {}}
               >
-                Connect
+                CONNECT
               </button>
             </div>
           </div>
