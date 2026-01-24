@@ -614,7 +614,9 @@ export class NostrService {
     }
 
     // eslint-disable-next-line no-console
-    console.log(`[NostrService] Found token with balance: ${found.balance / DECIMALS_MULTIPLIER} UCT`);
+    console.log(
+      `[NostrService] Found token with balance: ${found.balance / DECIMALS_MULTIPLIER} UCT`
+    );
 
     // Create transfer to recipient's nametag (proxy address)
     const recipientAddress = await ProxyAddress.fromNameTag(toNametag);
@@ -652,7 +654,11 @@ export class NostrService {
     // eslint-disable-next-line no-console
     console.log(`[NostrService] Waiting for inclusion proof...`);
 
-    const inclusionProof = await waitInclusionProof(rootTrustBase, stateTransitionClient, commitment);
+    const inclusionProof = await waitInclusionProof(
+      rootTrustBase,
+      stateTransitionClient,
+      commitment
+    );
 
     // Create transfer transaction
     const transferTx = commitment.toTransaction(inclusionProof);
@@ -665,7 +671,9 @@ export class NostrService {
 
     // Send via Nostr
     // eslint-disable-next-line no-console
-    console.log(`[NostrService] Sending token transfer via Nostr to ${recipientPubkey.slice(0, 16)}...`);
+    console.log(
+      `[NostrService] Sending token transfer via Nostr to ${recipientPubkey.slice(0, 16)}...`
+    );
 
     const transferEvent = await TokenTransferProtocol.createTokenTransferEvent(
       this.keyManager,
@@ -684,7 +692,9 @@ export class NostrService {
     this.deleteTokenFile(tokenIdHex);
 
     // eslint-disable-next-line no-console
-    console.log(`[NostrService] Token transfer sent successfully: ${transferEvent.id.slice(0, 16)}...`);
+    console.log(
+      `[NostrService] Token transfer sent successfully: ${transferEvent.id.slice(0, 16)}...`
+    );
 
     return {
       transferId: transferEvent.id,

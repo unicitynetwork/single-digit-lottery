@@ -6,7 +6,7 @@ import { MyBets } from './pages/MyBets';
 function App() {
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black text-white">
+      <div className="min-h-screen bg-linear-to-br from-purple-900 via-blue-900 to-black text-white">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/history" element={<History />} />

@@ -169,7 +169,9 @@ export class GameService {
   private static async refundPayment(bet: IBet, reason: string): Promise<void> {
     try {
       // eslint-disable-next-line no-console
-      console.log(`[GameService] Refunding ${bet.totalAmount} UCT to @${bet.userNametag}: ${reason}`);
+      console.log(
+        `[GameService] Refunding ${bet.totalAmount} UCT to @${bet.userNametag}: ${reason}`
+      );
 
       const transfer = await nostrService.sendTokens(bet.userNametag, bet.totalAmount);
       bet.refundTxId = transfer.transferId;
@@ -325,11 +327,7 @@ export class GameService {
 
   // Add commission to accumulated total
   private static async addCommission(amount: number): Promise<void> {
-    await Commission.findOneAndUpdate(
-      {},
-      { $inc: { totalAccumulated: amount } },
-      { upsert: true }
-    );
+    await Commission.findOneAndUpdate({}, { $inc: { totalAccumulated: amount } }, { upsert: true });
   }
 
   // Process payouts (called by cron job)

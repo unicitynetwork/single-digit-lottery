@@ -32,4 +32,7 @@ export const config = {
 
   // Data
   dataDir: process.env.DATA_DIR || './data',
+
+  // CORS
+  corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174').split(','),
 };

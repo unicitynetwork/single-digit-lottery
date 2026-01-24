@@ -21,7 +21,7 @@ export function History() {
   const { data: rounds, isLoading } = useRoundHistory(50);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0a0a0f] via-[#1a1a2e] to-[#0f0f1a] text-white font-rajdhani">
+    <div className="min-h-screen bg-linear-to-br from-[#0a0a0f] via-[#1a1a2e] to-[#0f0f1a] text-white font-rajdhani">
       {/* Header */}
       <header className="px-6 py-4 flex justify-between items-center border-b border-white/5 bg-black/30">
         <div>

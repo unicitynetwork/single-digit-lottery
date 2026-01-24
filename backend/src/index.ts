@@ -15,7 +15,7 @@ const PORT = config.port;
 app.use(helmet());
 app.use(
   cors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://172.19.142.73:5173'],
+    origin: config.corsOrigins,
     credentials: true,
   })
 );

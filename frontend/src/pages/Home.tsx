@@ -239,7 +239,7 @@ export function Home() {
       </div>
 
       {/* Main Content */}
-      <main className="p-5 px-8 max-w-[900px] mx-auto">
+      <main className="p-5 px-8 max-w-225 mx-auto">
         {/* Round Info & Timer */}
         <div className="text-center mb-3">
           {isLoading ? (
@@ -268,7 +268,7 @@ export function Home() {
         {/* Spinner / Last Winner */}
         <div className="text-center mb-3">
           <div
-            className="w-[170px] h-[170px] mx-auto bg-linear-to-br from-[#0a0a0f] to-[#1a1a2e] rounded-full flex items-center justify-center relative"
+            className="w-42.5 h-42.5 mx-auto bg-linear-to-br from-[#0a0a0f] to-[#1a1a2e] rounded-full flex items-center justify-center relative"
             style={{
               border: `4px solid ${showResult ? displayColor : '#00ff8844'}`,
               boxShadow: showResult
@@ -281,7 +281,7 @@ export function Home() {
               style={{ border: `2px solid ${showResult ? displayColor + '44' : '#00ff8833'}` }}
             />
             <div
-              className="absolute inset-[22px] rounded-full"
+              className="absolute inset-5.5 rounded-full"
               style={{ border: `1px solid ${showResult ? displayColor + '22' : '#00ff8822'}` }}
             />
             <span
