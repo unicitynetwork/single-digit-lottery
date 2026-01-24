@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { config } from '../config';
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: config.apiUrl,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -15,10 +16,13 @@ export interface Round {
   winningDigit: number | null;
   totalPool: number;
   totalPayout: number;
+  houseFee: number;
   startTime: string;
   endTime: string | null;
   drawTime: string | null;
   roundDurationSeconds?: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface BetItem {
@@ -28,14 +32,21 @@ export interface BetItem {
 
 export interface Bet {
   _id: string;
-  roundId: string;
+  roundId: string | Round;
+  roundNumber: number;
   userNametag: string;
   bets: BetItem[];
   totalAmount: number;
   invoiceId: string;
-  paymentStatus: 'pending' | 'paid' | 'expired' | 'failed';
+  paymentStatus: 'pending' | 'paid' | 'expired' | 'failed' | 'refunded';
+  paymentTxId: string | null;
+  refundTxId: string | null;
+  refundReason: string | null;
   winnings: number;
   payoutStatus: 'none' | 'pending' | 'sent' | 'confirmed' | 'failed';
+  payoutTxId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ApiResponse<T> {

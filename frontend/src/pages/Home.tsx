@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ChangeEvent } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { gameApi } from '../api/client';
 import type { BetItem } from '../api/client';
+import { useCurrentRound, usePreviousRound, useRoundHistory, usePlaceBets } from '../api/hooks';
+import { config } from '../config';
 import './lottery.css';
 
 type BetsState = Record<number, string>;
@@ -28,44 +30,15 @@ export function Home() {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const queryClient = useQueryClient();
 
-  // Queries
-  const { data: roundData, isLoading } = useQuery({
-    queryKey: ['currentRound'],
-    queryFn: () => gameApi.getCurrentRound(),
-    refetchInterval: 10000,
-  });
+  // Queries using custom hooks
+  const { data: round, isLoading } = useCurrentRound();
+  const { data: previousRound } = usePreviousRound();
+  const { data: historyRounds } = useRoundHistory(config.historyLimit);
 
-  const { data: previousRoundData } = useQuery({
-    queryKey: ['previousRound'],
-    queryFn: () => gameApi.getPreviousRound(),
-    refetchInterval: 30000,
-  });
+  // Mutation using custom hook
+  const placeBetMutation = usePlaceBets();
 
-  const { data: historyData } = useQuery({
-    queryKey: ['roundHistory'],
-    queryFn: () => gameApi.getRoundHistory(12),
-    refetchInterval: 30000,
-  });
-
-  // Mutation
-  const placeBetMutation = useMutation({
-    mutationFn: (betItems: BetItem[]) => gameApi.placeBets(userNametag, betItems),
-    onSuccess: (data) => {
-      const invoice = data.data.data.invoice;
-      alert(`Payment request sent!\n\nCheck your wallet for the payment request.\n\nAmount: ${invoice.amount} UCT\nInvoice ID: ${invoice.invoiceId.slice(0, 8)}...`);
-      setBets({0:'',1:'',2:'',3:'',4:'',5:'',6:'',7:'',8:'',9:''});
-      queryClient.invalidateQueries({ queryKey: ['currentRound'] });
-    },
-    onError: (error: unknown) => {
-      const axiosError = error as { response?: { data?: { error?: string } }; message?: string };
-      const message = axiosError?.response?.data?.error || axiosError?.message || 'Unknown error';
-      alert(`Error: ${message}`);
-    },
-  });
-
-  const round = roundData?.data.data;
-  const previousRound = previousRoundData?.data.data;
-  const winningHistory = historyData?.data.data
+  const winningHistory = historyRounds
     ?.filter(r => r.winningDigit !== null)
     .map(r => r.winningDigit as number)
     .slice(0, 12) || [];
@@ -111,7 +84,6 @@ export function Home() {
       return Math.max(0, Math.floor((endTime - now) / 1000));
     };
 
-    // Set initial value immediately via interval
     const interval = setInterval(() => {
       const remaining = calculateRemaining();
       setTimeRemaining(remaining);
@@ -151,7 +123,21 @@ export function Home() {
     }
 
     if (betItems.length > 0) {
-      placeBetMutation.mutate(betItems);
+      placeBetMutation.mutate(
+        { userNametag, bets: betItems },
+        {
+          onSuccess: (data) => {
+            const invoice = data.invoice;
+            alert(`Payment request sent!\n\nCheck your wallet for the payment request.\n\nAmount: ${invoice.amount} ${config.tokenSymbol}\nInvoice ID: ${invoice.invoiceId.slice(0, 8)}...`);
+            setBets({0:'',1:'',2:'',3:'',4:'',5:'',6:'',7:'',8:'',9:''});
+          },
+          onError: (error: unknown) => {
+            const axiosError = error as { response?: { data?: { error?: string } }; message?: string };
+            const message = axiosError?.response?.data?.error || axiosError?.message || 'Unknown error';
+            alert(`Error: ${message}`);
+          },
+        }
+      );
     }
   };
 
@@ -177,6 +163,9 @@ export function Home() {
   const displayColor = displayDigit !== null ? DIGIT_COLORS[displayDigit] : '#00ff88';
   const showResult = previousRound?.winningDigit !== null;
 
+  // Calculate potential win ratio based on pool (pari-mutuel)
+  const poolSize = round?.totalPool ?? 0;
+
   return (
     <div className="lottery-container min-h-screen bg-linear-to-br from-[#0a0a0f] via-[#1a1a2e] to-[#0f0f1a] font-orbitron text-white relative">
       <div className="scanline" />
@@ -190,9 +179,9 @@ export function Home() {
           </div>
           <div>
             <div className="text-sm font-extrabold tracking-widest bg-linear-to-r from-[#00ff88] to-[#00ffcc] bg-clip-text text-transparent">
-              SINGLE DIGIT
+              {config.appName}
             </div>
-            <div className="text-[8px] tracking-[3px] text-gray-500 font-rajdhani">LOTTERY</div>
+            <div className="text-[8px] tracking-[3px] text-gray-500 font-rajdhani">{config.appSubtitle}</div>
           </div>
         </div>
 
@@ -222,7 +211,7 @@ export function Home() {
           LAST WINNING NUMBERS
         </span>
         <div className="flex gap-2">
-          {winningHistory.length > 0 ? winningHistory.map((num, i) => (
+          {winningHistory.length > 0 ? winningHistory.map((num: number, i: number) => (
             <div
               key={i}
               className="rounded-full flex items-center justify-center text-white font-bold font-orbitron relative"
@@ -258,7 +247,7 @@ export function Home() {
           ) : round ? (
             <>
               <div className="text-gray-500 text-[11px] tracking-[3px] mb-1 font-rajdhani">
-                ROUND #{round.roundNumber} • {round.status.toUpperCase()} • POOL: {round.totalPool} UCT
+                ROUND #{round.roundNumber} • {round.status.toUpperCase()} • POOL: {round.totalPool} {config.tokenSymbol}
               </div>
               {isRoundOpen && timeRemaining !== null && (
                 <div className="text-5xl font-extrabold text-[#00ff88] drop-shadow-[0_0_40px_#00ff8866]">
@@ -380,8 +369,12 @@ export function Home() {
             </button>
             {currentBet > 0 && (
               <span className="text-gray-400 text-xs font-rajdhani">
-                Total: <span className="text-[#ffd700] font-bold">{currentBet} UCT</span>
-                <span className="text-gray-600 ml-2">→ Win {currentBet * 9} UCT</span>
+                Total: <span className="text-[#ffd700] font-bold">{currentBet} {config.tokenSymbol}</span>
+                <span className="text-gray-600 ml-2">
+                  {poolSize > 0
+                    ? `Pool: ${poolSize + currentBet} ${config.tokenSymbol}`
+                    : 'Pari-mutuel'}
+                </span>
               </span>
             )}
           </div>
@@ -390,15 +383,20 @@ export function Home() {
         {/* Pool Info */}
         <div className="bg-linear-to-br from-[#0f0f1a] to-[#1a1a2e] border border-white/5 rounded-2xl p-4 px-5">
           <div className="flex justify-between items-center">
-            <span className="text-gray-500 text-[11px] tracking-widest font-rajdhani">CURRENT POOL</span>
+            <div>
+              <span className="text-gray-500 text-[11px] tracking-widest font-rajdhani">CURRENT POOL</span>
+              <div className="text-gray-600 text-[9px] font-rajdhani mt-0.5">
+                Winners split the losers' bets
+              </div>
+            </div>
             <span
               className="text-lg font-bold font-orbitron"
               style={{
-                color: (round?.totalPool ?? 0) > 0 ? '#ffd700' : '#444',
-                textShadow: (round?.totalPool ?? 0) > 0 ? '0 0 10px #ffd70044' : 'none'
+                color: poolSize > 0 ? '#ffd700' : '#444',
+                textShadow: poolSize > 0 ? '0 0 10px #ffd70044' : 'none'
               }}
             >
-              {round?.totalPool ?? 0} <span className="text-[10px] text-gray-400">UCT</span>
+              {poolSize} <span className="text-[10px] text-gray-400">{config.tokenSymbol}</span>
             </span>
           </div>
         </div>
@@ -406,7 +404,7 @@ export function Home() {
 
       {/* Footer */}
       <footer className="p-2 text-center text-gray-600 text-[10px] font-rajdhani border-t border-white/5">
-        Powered by <span className="text-[#ffd700]">UCT Token</span> • Win 9x • 18+
+        Powered by <span className="text-[#ffd700]">{config.tokenName}</span> • Pari-mutuel • 18+
       </footer>
 
       {/* Connect Modal */}
