@@ -1,9 +1,48 @@
 import crypto from 'crypto';
-import { Round, Bet, Commission, IRound, IBet, IBetItem } from '../models/game.model.js';
+import mongoose from 'mongoose';
+import {
+  Round,
+  Bet,
+  Commission,
+  PaymentLog,
+  IRound,
+  IBet,
+  IBetItem,
+} from '../models/game.model.js';
 import { nostrService } from './index.js';
 import { config } from '../env.js';
 
 export class GameService {
+  // Log payment to database
+  private static async logPayment(params: {
+    type: 'incoming' | 'outgoing';
+    amount: number;
+    fromNametag?: string | null;
+    toNametag?: string | null;
+    txId: string;
+    relatedBetId?: mongoose.Types.ObjectId | null;
+    relatedRoundId?: mongoose.Types.ObjectId | null;
+    purpose: 'bet_payment' | 'payout' | 'refund' | 'commission_withdrawal';
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    try {
+      await PaymentLog.create({
+        type: params.type,
+        amount: params.amount,
+        fromNametag: params.fromNametag || null,
+        toNametag: params.toNametag || null,
+        txId: params.txId,
+        relatedBetId: params.relatedBetId || null,
+        relatedRoundId: params.relatedRoundId || null,
+        purpose: params.purpose,
+        status: 'confirmed',
+        metadata: params.metadata || {},
+      });
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('[GameService] Failed to log payment:', error);
+    }
+  }
   // Generate cryptographically secure random digit
   static generateWinningDigit(): number {
     return crypto.randomInt(0, 10);
@@ -157,6 +196,19 @@ export class GameService {
     bet.paymentTxId = txId;
     await bet.save();
 
+    // Log incoming payment
+    await this.logPayment({
+      type: 'incoming',
+      amount: bet.totalAmount,
+      fromNametag: bet.userNametag,
+      toNametag: config.agentNametag,
+      txId,
+      relatedBetId: bet._id as mongoose.Types.ObjectId,
+      relatedRoundId: bet.roundId,
+      purpose: 'bet_payment',
+      metadata: { roundNumber: round.roundNumber, bets: bet.bets },
+    });
+
     // Update round pool
     await Round.findByIdAndUpdate(bet.roundId, {
       $inc: { totalPool: bet.totalAmount },
@@ -176,6 +228,23 @@ export class GameService {
       const transfer = await nostrService.sendTokens(bet.userNametag, bet.totalAmount);
       bet.refundTxId = transfer.transferId;
       await bet.save();
+
+      // Log outgoing refund
+      await this.logPayment({
+        type: 'outgoing',
+        amount: bet.totalAmount,
+        fromNametag: config.agentNametag,
+        toNametag: bet.userNametag,
+        txId: transfer.transferId,
+        relatedBetId: bet._id as mongoose.Types.ObjectId,
+        relatedRoundId: bet.roundId,
+        purpose: 'refund',
+        metadata: {
+          reason,
+          roundNumber: bet.roundNumber,
+          originalBets: bet.bets,
+        },
+      });
 
       // eslint-disable-next-line no-console
       console.log(`[GameService] Refund sent: ${transfer.transferId}`);
@@ -332,6 +401,11 @@ export class GameService {
 
   // Process payouts (called by cron job)
   static async processPayouts(roundId: string): Promise<{ processed: number; failed: number }> {
+    const round = await Round.findById(roundId);
+    if (!round) {
+      throw new Error('Round not found');
+    }
+
     const bets = await Bet.find({
       roundId,
       winnings: { $gt: 0 },
@@ -351,6 +425,28 @@ export class GameService {
         bet.payoutTxId = transfer.transferId;
         bet.payoutStatus = 'confirmed';
         await bet.save();
+
+        // Find the winning bet details
+        const winningBetItem = bet.bets.find((b) => b.digit === round.winningDigit);
+
+        // Log outgoing payout
+        await this.logPayment({
+          type: 'outgoing',
+          amount: bet.winnings,
+          fromNametag: config.agentNametag,
+          toNametag: bet.userNametag,
+          txId: transfer.transferId,
+          relatedBetId: bet._id as mongoose.Types.ObjectId,
+          relatedRoundId: bet.roundId,
+          purpose: 'payout',
+          metadata: {
+            roundNumber: bet.roundNumber,
+            winningDigit: round.winningDigit,
+            betOnWinningDigit: winningBetItem?.amount || 0,
+            totalBetAmount: bet.totalAmount,
+            userBets: bet.bets,
+          },
+        });
 
         processed++;
       } catch {
@@ -400,6 +496,16 @@ export class GameService {
   // Get bets for a round
   static async getRoundBets(roundId: string): Promise<IBet[]> {
     return Bet.find({ roundId, paymentStatus: 'paid' });
+  }
+
+  // Get user bets in current round
+  static async getUserBetsInCurrentRound(userNametag: string): Promise<IBet[]> {
+    const round = await this.getCurrentRound();
+    return Bet.find({
+      roundId: round._id,
+      userNametag,
+      paymentStatus: 'paid',
+    }).sort({ createdAt: -1 });
   }
 
   // Get commission balance
@@ -457,6 +563,20 @@ export class GameService {
           lastWithdrawalAt: new Date(),
         }
       );
+
+      // Log outgoing commission withdrawal
+      await this.logPayment({
+        type: 'outgoing',
+        amount: withdrawAmount,
+        fromNametag: config.agentNametag,
+        toNametag: developerNametag,
+        txId: transfer.transferId,
+        purpose: 'commission_withdrawal',
+        metadata: {
+          previousBalance: balance.available,
+          remainingBalance: balance.available - withdrawAmount,
+        },
+      });
 
       // eslint-disable-next-line no-console
       console.log(`[GameService] Commission withdrawal successful: ${transfer.transferId}`);

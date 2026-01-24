@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { gameApi } from '../api/client';
 import type { BetItem } from '../api/client';
-import { useCurrentRound, usePreviousRound, useRoundHistory, usePlaceBets } from '../api/hooks';
+import { useCurrentRound, usePreviousRound, useRoundHistory, usePlaceBets, useUserBetsInCurrentRound } from '../api/hooks';
 import { config } from '../config';
 import './lottery.css';
 
@@ -16,6 +16,7 @@ interface LockedBetsData {
 }
 
 const LOCKED_BETS_KEY = 'lottery_locked_bets';
+const NAMETAG_KEY = 'lottery_nametag';
 
 function loadLockedBets(): LockedBetsData | null {
   try {
@@ -26,12 +27,24 @@ function loadLockedBets(): LockedBetsData | null {
   }
 }
 
-function saveLockedBets(data: LockedBetsData): void {
-  localStorage.setItem(LOCKED_BETS_KEY, JSON.stringify(data));
-}
-
 function clearLockedBets(): void {
   localStorage.removeItem(LOCKED_BETS_KEY);
+}
+
+function loadNametag(): string {
+  try {
+    return localStorage.getItem(NAMETAG_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function saveNametag(nametag: string): void {
+  if (nametag) {
+    localStorage.setItem(NAMETAG_KEY, nametag);
+  } else {
+    localStorage.removeItem(NAMETAG_KEY);
+  }
 }
 
 const DIGIT_COLORS = [
@@ -47,8 +60,7 @@ function formatTime(seconds: number): string {
 
 export function Home() {
   const [bets, setBets] = useState<BetsState>({0:'',1:'',2:'',3:'',4:'',5:'',6:'',7:'',8:'',9:''});
-  const [lockedBets, setLockedBets] = useState<Record<number, number>>({});
-  const [userNametag, setUserNametag] = useState('');
+  const [userNametag, setUserNametag] = useState(loadNametag);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [nametagStatus, setNametagStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
   const [nametagError, setNametagError] = useState<string | null>(null);
@@ -62,6 +74,9 @@ export function Home() {
   const { data: round, isLoading } = useCurrentRound();
   const { data: previousRound } = usePreviousRound();
   const { data: historyRounds } = useRoundHistory(config.historyLimit);
+  const { data: myCurrentRoundBets } = useUserBetsInCurrentRound(
+    nametagStatus === 'valid' ? userNametag : undefined
+  );
 
   // Mutation using custom hook
   const placeBetMutation = usePlaceBets();
@@ -78,8 +93,7 @@ export function Home() {
     const saved = loadLockedBets();
 
     if (saved && saved.roundNumber === round.roundNumber) {
-      // Same round - restore locked bets
-      setLockedBets(saved.bets);
+      // Same round - restore locked bets to ref
       prevLockedBetsRef.current = saved.bets;
     } else if (prevRoundNumberRef.current !== null && prevRoundNumberRef.current !== round.roundNumber) {
       // Round changed - calculate result from previous bets
@@ -89,18 +103,20 @@ export function Home() {
       if (hadBets && previousRound?.winningDigit !== null && previousRound?.winningDigit !== undefined) {
         const winningDigit = previousRound.winningDigit;
         const betOnWinner = prevBets[winningDigit] || 0;
-        if (betOnWinner > 0) {
-          setRoundResult({ show: true, won: true, amount: betOnWinner * 9 });
-        } else {
-          setRoundResult({ show: true, won: false, amount: 0 });
-        }
-        // Auto-hide after 5 seconds
-        setTimeout(() => setRoundResult(null), 5000);
+        // Use setTimeout to avoid synchronous setState in effect
+        setTimeout(() => {
+          if (betOnWinner > 0) {
+            setRoundResult({ show: true, won: true, amount: betOnWinner * 9 });
+          } else {
+            setRoundResult({ show: true, won: false, amount: 0 });
+          }
+          // Auto-hide after 5 seconds
+          setTimeout(() => setRoundResult(null), 5000);
+        }, 0);
       }
 
       // Clear locked bets
       clearLockedBets();
-      setLockedBets({});
       prevLockedBetsRef.current = {};
     }
 
@@ -211,6 +227,7 @@ export function Home() {
 
   const handleConnectSubmit = (): void => {
     if (nametagStatus === 'valid') {
+      saveNametag(userNametag);
       setShowConnectModal(false);
     }
   };
@@ -220,7 +237,14 @@ export function Home() {
     return sum + ((!isNaN(num) && num > 0) ? num : 0);
   }, 0);
 
-  const totalLockedBets = Object.values(lockedBets).reduce((sum, val) => sum + val, 0);
+  // Aggregate bets from database for current round
+  const myBetsAggregated = (myCurrentRoundBets || []).reduce<Record<number, number>>((acc, bet) => {
+    bet.bets.forEach(b => {
+      acc[b.digit] = (acc[b.digit] || 0) + b.amount;
+    });
+    return acc;
+  }, {});
+  const totalMyBets = Object.values(myBetsAggregated).reduce((sum, val) => sum + val, 0);
 
   const isRoundOpen = round?.status === 'open';
   const canPlaceBet = currentBet > 0 && isRoundOpen && !placeBetMutation.isPending;
@@ -464,7 +488,7 @@ export function Home() {
           </div>
         </div>
 
-        {/* My Locked Bets */}
+        {/* My Bets This Round */}
         <div className="bg-linear-to-br from-[#0f0f1a] to-[#1a1a2e] border border-white/5 rounded-2xl p-4 px-5 mb-3">
           <div className="flex justify-between items-center mb-3">
             <span className="text-gray-500 text-[11px] tracking-widest font-rajdhani">MY BETS THIS ROUND</span>
@@ -473,19 +497,19 @@ export function Home() {
               <span
                 className="text-lg font-bold font-orbitron"
                 style={{
-                  color: totalLockedBets > 0 ? '#ffd700' : '#444',
-                  textShadow: totalLockedBets > 0 ? '0 0 10px #ffd70044' : 'none'
+                  color: totalMyBets > 0 ? '#ffd700' : '#444',
+                  textShadow: totalMyBets > 0 ? '0 0 10px #ffd70044' : 'none'
                 }}
               >
-                {totalLockedBets} <span className="text-[10px] text-gray-400">{config.tokenSymbol}</span>
+                {totalMyBets} <span className="text-[10px] text-gray-400">{config.tokenSymbol}</span>
               </span>
             </div>
           </div>
 
-          {totalLockedBets > 0 ? (
+          {totalMyBets > 0 ? (
             <div className="flex gap-1.5">
               {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(digit => {
-                const total = lockedBets[digit] || 0;
+                const total = myBetsAggregated[digit] || 0;
                 return (
                   <div
                     key={digit}
@@ -513,9 +537,13 @@ export function Home() {
                 );
               })}
             </div>
-          ) : (
+          ) : nametagStatus === 'valid' ? (
             <div className="text-gray-600 text-xs text-center py-2.5 font-rajdhani">
               No bets placed yet
+            </div>
+          ) : (
+            <div className="text-gray-600 text-xs text-center py-2.5 font-rajdhani">
+              Connect wallet to see your bets
             </div>
           )}
         </div>

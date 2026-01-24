@@ -15,6 +15,9 @@ router.get('/validate/:nametag', GameController.validateNametag);
 // POST /api/game/bet - Place bets (payment request sent via Nostr)
 router.post('/bet', GameController.placeBets);
 
+// GET /api/game/round/current/bets/:nametag - Get user bets in current round
+router.get('/round/current/bets/:nametag', GameController.getUserBetsInCurrentRound);
+
 // GET /api/game/round/:roundId/bets - Get bets for a round
 router.get('/round/:roundId/bets', GameController.getRoundBets);
 

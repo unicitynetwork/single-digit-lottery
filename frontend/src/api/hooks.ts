@@ -8,6 +8,7 @@ export const queryKeys = {
   previousRound: ['previousRound'] as const,
   roundHistory: (limit?: number) => ['roundHistory', limit] as const,
   userBets: (nametag: string, limit?: number) => ['userBets', nametag, limit] as const,
+  userBetsInCurrentRound: (nametag: string) => ['userBetsInCurrentRound', nametag] as const,
   roundBets: (roundId: string) => ['roundBets', roundId] as const,
 };
 
@@ -71,6 +72,19 @@ export function useRoundBets(roundId: string | undefined) {
   });
 }
 
+// User bets in current round hook
+export function useUserBetsInCurrentRound(nametag: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.userBetsInCurrentRound(nametag ?? ''),
+    queryFn: async () => {
+      const response = await gameApi.getUserBetsInCurrentRound(nametag!);
+      return response.data.data;
+    },
+    enabled: !!nametag,
+    refetchInterval: config.refetchCurrentRound,
+  });
+}
+
 // Validate nametag hook
 export function useValidateNametag() {
   return useMutation({
@@ -90,8 +104,11 @@ export function usePlaceBets() {
       const response = await gameApi.placeBets(userNametag, bets);
       return response.data.data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.currentRound });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.userBetsInCurrentRound(variables.userNametag),
+      });
     },
   });
 }

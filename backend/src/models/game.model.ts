@@ -205,6 +205,85 @@ const commissionSchema = new Schema<ICommission>(
   }
 );
 
+// Payment log for tracking all incoming and outgoing payments
+export interface IPaymentLog extends Document {
+  type: 'incoming' | 'outgoing';
+  amount: number;
+  fromNametag: string | null;
+  toNametag: string | null;
+  txId: string;
+  relatedBetId: mongoose.Types.ObjectId | null;
+  relatedRoundId: mongoose.Types.ObjectId | null;
+  purpose: 'bet_payment' | 'payout' | 'refund' | 'commission_withdrawal';
+  status: 'pending' | 'confirmed' | 'failed';
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const paymentLogSchema = new Schema<IPaymentLog>(
+  {
+    type: {
+      type: String,
+      enum: ['incoming', 'outgoing'],
+      required: true,
+      index: true,
+    },
+    amount: {
+      type: Number,
+      required: true,
+    },
+    fromNametag: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    toNametag: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    txId: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    relatedBetId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Bet',
+      default: null,
+    },
+    relatedRoundId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Round',
+      default: null,
+    },
+    purpose: {
+      type: String,
+      enum: ['bet_payment', 'payout', 'refund', 'commission_withdrawal'],
+      required: true,
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'confirmed', 'failed'],
+      default: 'confirmed',
+    },
+    metadata: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+// Indexes for common queries
+paymentLogSchema.index({ createdAt: -1 });
+paymentLogSchema.index({ type: 1, createdAt: -1 });
+
 export const Bet = mongoose.model<IBet>('Bet', betSchema);
 export const Round = mongoose.model<IRound>('Round', roundSchema);
 export const Commission = mongoose.model<ICommission>('Commission', commissionSchema);
+export const PaymentLog = mongoose.model<IPaymentLog>('PaymentLog', paymentLogSchema);

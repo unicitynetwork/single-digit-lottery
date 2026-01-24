@@ -118,6 +118,22 @@ export class GameController {
     }
   }
 
+  // Get user bets in current round
+  static async getUserBetsInCurrentRound(req: Request, res: Response): Promise<void> {
+    try {
+      const nametag = req.params.nametag as string;
+      if (!nametag) {
+        res.status(400).json({ success: false, error: 'Nametag is required' });
+        return;
+      }
+      const bets = await GameService.getUserBetsInCurrentRound(nametag);
+      res.json({ success: true, data: bets });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  }
+
   // Get commission balance
   static async getCommissionBalance(_req: Request, res: Response): Promise<void> {
     try {

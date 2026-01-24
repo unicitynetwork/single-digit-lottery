@@ -78,4 +78,7 @@ export const gameApi = {
 
   getRoundBets: (roundId: string) =>
     api.get<ApiResponse<Bet[]>>(`/game/round/${roundId}/bets`),
+
+  getUserBetsInCurrentRound: (nametag: string) =>
+    api.get<ApiResponse<Bet[]>>(`/game/round/current/bets/${nametag}`),
 };
