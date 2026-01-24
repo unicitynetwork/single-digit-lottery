@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import {
   NostrClient,
   NostrKeyManager,
@@ -10,10 +11,14 @@ import {
 import type { Event } from '@unicitylabs/nostr-js-sdk';
 import { Token } from '@unicitylabs/state-transition-sdk/lib/token/Token.js';
 import { TransferTransaction } from '@unicitylabs/state-transition-sdk/lib/transaction/TransferTransaction.js';
+import { TransferCommitment } from '@unicitylabs/state-transition-sdk/lib/transaction/TransferCommitment.js';
 import { AddressScheme } from '@unicitylabs/state-transition-sdk/lib/address/AddressScheme.js';
 import { UnmaskedPredicate } from '@unicitylabs/state-transition-sdk/lib/predicate/embedded/UnmaskedPredicate.js';
 import { HashAlgorithm } from '@unicitylabs/state-transition-sdk/lib/hash/HashAlgorithm.js';
 import { TokenState } from '@unicitylabs/state-transition-sdk/lib/token/TokenState.js';
+import { ProxyAddress } from '@unicitylabs/state-transition-sdk/lib/address/ProxyAddress.js';
+import { CoinId } from '@unicitylabs/state-transition-sdk/lib/token/fungible/CoinId.js';
+import { waitInclusionProof } from '@unicitylabs/state-transition-sdk/lib/util/InclusionProofUtils.js';
 import type { IdentityService } from './identity.service.js';
 
 export interface NostrConfig {
@@ -501,10 +506,81 @@ export class NostrService {
     });
   }
 
+  // Load all tokens from storage
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async loadTokensFromStorage(): Promise<Token<any>[]> {
+    const tokensDir = path.join(this.config.dataDir, 'tokens');
+    if (!fs.existsSync(tokensDir)) {
+      return [];
+    }
+
+    const files = fs.readdirSync(tokensDir).filter((f) => f.endsWith('.json'));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tokens: Token<any>[] = [];
+
+    for (const file of files) {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(tokensDir, file), 'utf-8'));
+        const token = await Token.fromJSON(data.token);
+        tokens.push(token);
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error(`[NostrService] Failed to load token ${file}:`, error);
+      }
+    }
+
+    return tokens;
+  }
+
+  // Find a token with sufficient balance for the given coin
+  private async findTokenWithBalance(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tokens: Token<any>[],
+    coinIdHex: string,
+    requiredAmount: bigint
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ): Promise<{ token: Token<any>; balance: bigint } | null> {
+    const coinId = CoinId.fromJSON(coinIdHex);
+
+    for (const token of tokens) {
+      if (!token.coins) continue;
+
+      const balance = token.coins.get(coinId);
+      if (balance && balance >= requiredAmount) {
+        return { token, balance };
+      }
+    }
+
+    return null;
+  }
+
+  // Delete token file after successful transfer
+  private deleteTokenFile(tokenIdHex: string): void {
+    const tokensDir = path.join(this.config.dataDir, 'tokens');
+    if (!fs.existsSync(tokensDir)) return;
+
+    const files = fs.readdirSync(tokensDir);
+    for (const file of files) {
+      if (file.includes(tokenIdHex.slice(0, 16))) {
+        try {
+          fs.unlinkSync(path.join(tokensDir, file));
+          // eslint-disable-next-line no-console
+          console.log(`[NostrService] Deleted spent token file: ${file}`);
+        } catch {
+          // Ignore deletion errors
+        }
+        break;
+      }
+    }
+  }
+
   async sendTokens(toNametag: string, amount: number): Promise<TokenTransfer> {
-    if (!this.client) {
+    if (!this.client || !this.keyManager) {
       throw new Error('Nostr client not connected');
     }
+
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] Sending ${amount} tokens to @${toNametag}...`);
 
     // Resolve recipient's pubkey
     const recipientPubkey = await this.resolvePubkey(toNametag);
@@ -512,21 +588,102 @@ export class NostrService {
       throw new Error(`Cannot resolve pubkey for nametag: ${toNametag}`);
     }
 
-    // TODO: Implement actual token transfer
-    // This requires:
-    // 1. Load tokens from wallet
-    // 2. Create TransferTransaction
-    // 3. Sign and send via Nostr
-    // eslint-disable-next-line no-console
-    console.log(`[NostrService] TODO: Send ${amount} tokens to @${toNametag}`);
+    // Convert amount to token units (18 decimals)
+    const amountWithDecimals = BigInt(amount) * DECIMALS_MULTIPLIER;
 
-    const transferId = `transfer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Load tokens from storage
+    const tokens = await this.loadTokensFromStorage();
+    if (tokens.length === 0) {
+      throw new Error('No tokens available in wallet');
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] Loaded ${tokens.length} tokens from storage`);
+
+    // Find a token with sufficient balance
+    const found = await this.findTokenWithBalance(tokens, this.config.coinId, amountWithDecimals);
+    if (!found) {
+      throw new Error(`Insufficient balance. Need ${amount} UCT`);
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] Found token with balance: ${found.balance / DECIMALS_MULTIPLIER} UCT`);
+
+    // Create transfer to recipient's nametag (proxy address)
+    const recipientAddress = await ProxyAddress.fromNameTag(toNametag);
+
+    // Get signing service from identity
+    const signingService = this.identityService.getSigningService();
+    const stateTransitionClient = this.identityService.getStateTransitionClient();
+    const rootTrustBase = this.identityService.getRootTrustBase();
+
+    // Create transfer commitment
+    const salt = crypto.randomBytes(32);
+
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] Creating transfer commitment...`);
+
+    const commitment = await TransferCommitment.create(
+      found.token,
+      recipientAddress,
+      salt,
+      null, // recipientDataHash
+      null, // message
+      signingService
+    );
+
+    // Submit commitment to aggregator
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] Submitting commitment to aggregator...`);
+
+    const response = await stateTransitionClient.submitTransferCommitment(commitment);
+    if (response.status !== 'SUCCESS') {
+      throw new Error(`Transfer commitment rejected: ${response.status}`);
+    }
+
+    // Wait for inclusion proof
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] Waiting for inclusion proof...`);
+
+    const inclusionProof = await waitInclusionProof(rootTrustBase, stateTransitionClient, commitment);
+
+    // Create transfer transaction
+    const transferTx = commitment.toTransaction(inclusionProof);
+
+    // Prepare token transfer payload for Nostr
+    const transferPayload = JSON.stringify({
+      sourceToken: found.token.toJSON(),
+      transferTx: transferTx.toJSON(),
+    });
+
+    // Send via Nostr
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] Sending token transfer via Nostr to ${recipientPubkey.slice(0, 16)}...`);
+
+    const transferEvent = await TokenTransferProtocol.createTokenTransferEvent(
+      this.keyManager,
+      recipientPubkey,
+      transferPayload,
+      {
+        amount: amountWithDecimals,
+        symbol: 'UCT',
+      }
+    );
+
+    await this.client.publishEvent(transferEvent);
+
+    // Delete the spent token file
+    const tokenIdHex = Buffer.from(found.token.id.bytes).toString('hex');
+    this.deleteTokenFile(tokenIdHex);
+
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] Token transfer sent successfully: ${transferEvent.id.slice(0, 16)}...`);
 
     return {
-      transferId,
+      transferId: transferEvent.id,
       toNametag,
       amount,
-      status: 'pending',
+      status: 'sent',
       createdAt: new Date(),
     };
   }
