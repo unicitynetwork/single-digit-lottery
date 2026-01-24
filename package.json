@@ -12,5 +12,8 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.0"
+  },
+  "dependencies": {
+    "full": "^1.0.1"
   }
 }
