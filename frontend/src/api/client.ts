@@ -47,6 +47,8 @@ export interface Bet {
   payoutTxId: string | null;
   createdAt: string;
   updatedAt: string;
+  // Win/loss result: true = won, false = lost, null = pending (round not completed)
+  won: boolean | null;
 }
 
 export interface ApiResponse<T> {

@@ -21,6 +21,7 @@ export function useCurrentRound() {
       return response.data.data;
     },
     refetchInterval: config.refetchCurrentRound,
+    staleTime: config.staleTime,
   });
 }
 
@@ -33,6 +34,7 @@ export function usePreviousRound() {
       return response.data.data;
     },
     refetchInterval: config.refetchPreviousRound,
+    staleTime: config.refetchPreviousRound, // Keep fresh for the full interval
   });
 }
 
@@ -45,6 +47,7 @@ export function useRoundHistory(limit = 20) {
       return response.data.data;
     },
     refetchInterval: config.refetchHistory,
+    staleTime: config.refetchHistory, // Keep fresh for the full interval
   });
 }
 
@@ -57,6 +60,7 @@ export function useUserBets(nametag: string | undefined, limit = 50) {
       return response.data.data;
     },
     enabled: !!nametag,
+    staleTime: config.staleTime,
   });
 }
 
@@ -69,6 +73,7 @@ export function useRoundBets(roundId: string | undefined) {
       return response.data.data;
     },
     enabled: !!roundId,
+    staleTime: config.staleTime,
   });
 }
 
@@ -82,6 +87,7 @@ export function useUserBetsInCurrentRound(nametag: string | undefined) {
     },
     enabled: !!nametag,
     refetchInterval: config.refetchCurrentRound,
+    staleTime: config.staleTime,
   });
 }
 

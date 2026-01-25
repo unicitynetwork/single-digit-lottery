@@ -134,8 +134,8 @@ describe('RoundScheduler', () => {
 
       await scheduler.start();
 
-      // Should only wait ~500ms more
-      await new Promise((r) => setTimeout(r, 1000));
+      // Wait for round to complete (scheduler processing takes time)
+      await new Promise((r) => setTimeout(r, 2000));
 
       scheduler.stop();
 

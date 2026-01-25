@@ -51,6 +51,8 @@ export interface TokenTransfer {
   amount: number;
   status: 'pending' | 'sent' | 'confirmed' | 'failed';
   createdAt: Date;
+  transactionCount: number; // Number of transactions (> 1 means split)
+  sentAmounts: number[]; // Individual amounts of each transaction
 }
 
 export interface PendingPayment {
@@ -64,9 +66,20 @@ export interface PendingPayment {
   // For multi-token payments (stored in smallest units - 18 decimals)
   receivedAmountRaw: bigint;
   receivedTxIds: string[];
+  receivedAmounts: number[]; // Individual token amounts for logging
+  // Flag to prevent double confirmation
+  confirmed: boolean;
 }
 
-export type PaymentConfirmedCallback = (invoiceId: string, txId: string) => void;
+export interface PaymentInfo {
+  invoiceId: string;
+  txId: string;
+  tokenCount: number; // Number of tokens received (> 1 means split payment)
+  totalAmount: number;
+  receivedAmounts: number[]; // Individual amounts of each token
+}
+
+export type PaymentConfirmedCallback = (paymentInfo: PaymentInfo) => void;
 
 export class NostrService {
   private client: NostrClient | null = null;
@@ -233,6 +246,7 @@ export class NostrService {
       // Accumulate received amount (in raw units - 18 decimals)
       pending.receivedAmountRaw += tokenAmountRaw;
       pending.receivedTxIds.push(event.id);
+      pending.receivedAmounts.push(parseFloat(this.rawToDisplay(tokenAmountRaw)));
 
       // Convert expected amount to raw (18 decimals)
       const expectedAmountRaw = BigInt(Math.round(pending.amount * 1e18));
@@ -245,11 +259,30 @@ export class NostrService {
       // Check if we have enough (allow tiny tolerance for rounding - 0.0001 UCT)
       const tolerance = 10n ** 14n;
       if (pending.receivedAmountRaw >= expectedAmountRaw - tolerance) {
+        // Prevent double confirmation (race condition with multiple tokens)
+        if (pending.confirmed) {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[NostrService] Payment already confirmed for invoice ${pending.invoiceId}, skipping`
+          );
+          return;
+        }
+        pending.confirmed = true;
+
+        const tokenCount = pending.receivedTxIds.length;
         // eslint-disable-next-line no-console
-        console.log(`[NostrService] Payment confirmed for invoice ${pending.invoiceId}`);
+        console.log(
+          `[NostrService] Payment confirmed for invoice ${pending.invoiceId} (${tokenCount} token${tokenCount > 1 ? 's' : ''})`
+        );
 
         if (this.onPaymentConfirmed) {
-          this.onPaymentConfirmed(pending.invoiceId, event.id);
+          this.onPaymentConfirmed({
+            invoiceId: pending.invoiceId,
+            txId: pending.receivedTxIds.join(','),
+            tokenCount,
+            totalAmount: pending.amount,
+            receivedAmounts: pending.receivedAmounts,
+          });
         }
         pending.resolve({ success: true, txId: pending.receivedTxIds.join(',') });
         this.pendingPayments.delete(pendingKey);
@@ -557,6 +590,8 @@ export class NostrService {
       resolve: resolvePayment,
       receivedAmountRaw: 0n,
       receivedTxIds: [],
+      receivedAmounts: [],
+      confirmed: false,
     };
 
     this.pendingPayments.set(eventId, pending);
@@ -771,12 +806,13 @@ export class NostrService {
     );
 
     const transferIds: string[] = [];
+    const sentAmounts: number[] = [];
 
     // Step 1: Transfer whole tokens directly
     for (const item of plan.tokensToTransferDirectly) {
-      const tokenAmount = Number(item.amount / 10n ** 14n) / 10000;
+      const tokenAmount = parseFloat(this.rawToDisplay(item.amount));
       // eslint-disable-next-line no-console
-      console.log(`[NostrService] Transferring whole token: ${this.rawToDisplay(item.amount)} UCT`);
+      console.log(`[NostrService] Transferring whole token: ${tokenAmount} UCT`);
 
       const transferId = await this.sendSingleToken(
         item.sdkToken,
@@ -795,6 +831,7 @@ export class NostrService {
       }
 
       transferIds.push(transferId);
+      sentAmounts.push(tokenAmount);
     }
 
     // Step 2: Split token if needed
@@ -854,13 +891,16 @@ export class NostrService {
 
       await this.client.publishEvent(transferEvent);
       transferIds.push(transferEvent.id);
+      sentAmounts.push(parseFloat(this.rawToDisplay(plan.splitAmount)));
 
       // eslint-disable-next-line no-console
       console.log(`[NostrService] Split transfer complete: ${transferEvent.id.slice(0, 16)}...`);
     }
 
     // eslint-disable-next-line no-console
-    console.log(`[NostrService] All transfers complete: ${transferIds.length} transactions`);
+    console.log(
+      `[NostrService] All transfers complete: ${transferIds.length} transactions (${sentAmounts.join(' + ')} UCT)`
+    );
 
     return {
       transferId: transferIds.join(','),
@@ -868,6 +908,8 @@ export class NostrService {
       amount,
       status: 'sent',
       createdAt: new Date(),
+      transactionCount: transferIds.length,
+      sentAmounts,
     };
   }
 

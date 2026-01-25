@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { gameApi } from '../api/client';
 import type { BetItem } from '../api/client';
-import { useCurrentRound, usePreviousRound, useRoundHistory, usePlaceBets, useUserBetsInCurrentRound } from '../api/hooks';
+import { useCurrentRound, usePreviousRound, useRoundHistory, usePlaceBets, useUserBetsInCurrentRound, useUserBets } from '../api/hooks';
 import { config } from '../config';
 import './lottery.css';
 
@@ -64,19 +64,34 @@ export function Home() {
   const { data: myCurrentRoundBets } = useUserBetsInCurrentRound(
     nametagStatus === 'valid' ? userNametag : undefined
   );
+  // Get user's bet history to show win/loss in winning numbers
+  const { data: myBetsHistory } = useUserBets(
+    nametagStatus === 'valid' ? userNametag : undefined,
+    config.historyLimit
+  );
 
   // Mutation using custom hook
   const placeBetMutation = usePlaceBets();
 
-  // Get winning history, but skip the newest entry while spinning
-  const allWinningHistory = historyRounds
+  // Create a map of roundNumber -> win result (true = won, false = lost, undefined = didn't play)
+  const roundResultsMap = new Map<number, boolean>();
+  if (myBetsHistory) {
+    for (const bet of myBetsHistory) {
+      if (bet.won !== null) {
+        roundResultsMap.set(bet.roundNumber, bet.won);
+      }
+    }
+  }
+
+  // Get winning history with round numbers for result lookup
+  const allHistoryWithRounds = historyRounds
     ?.filter(r => r.winningDigit !== null)
-    .map(r => r.winningDigit as number) || [];
+    .map(r => ({ digit: r.winningDigit as number, roundNumber: r.roundNumber })) || [];
 
   // While spinning, don't show the latest winner in history (it will appear after animation)
-  const winningHistory = isSpinning
-    ? allWinningHistory.slice(1, 13)
-    : allWinningHistory.slice(0, 12);
+  const winningHistoryWithRounds = isSpinning
+    ? allHistoryWithRounds.slice(1, 13)
+    : allHistoryWithRounds.slice(0, 12);
 
   // Keep prevLockedBetsRef in sync with server data for current round
   useEffect(() => {
@@ -374,27 +389,55 @@ export function Home() {
           LAST WINNING NUMBERS
         </span>
         <div className="flex gap-2">
-          {winningHistory.length > 0 ? winningHistory.map((num: number, i: number) => (
-            <div
-              key={i}
-              className="rounded-full flex items-center justify-center text-white font-bold font-orbitron relative"
-              style={{
-                width: i === 0 ? 36 : 30,
-                height: i === 0 ? 36 : 30,
-                background: DIGIT_COLORS[num],
-                fontSize: i === 0 ? 15 : 13,
-                opacity: 1 - i * 0.05,
-                boxShadow: i === 0 ? `0 0 15px ${DIGIT_COLORS[num]}88` : 'none'
-              }}
-            >
-              {num}
-              {i === 0 && (
-                <div className="absolute -top-1.5 -right-1.5 bg-white text-black text-[7px] font-bold px-1 py-0.5 rounded-md font-rajdhani">
-                  NEW
-                </div>
-              )}
-            </div>
-          )) : (
+          {winningHistoryWithRounds.length > 0 ? winningHistoryWithRounds.map((item, i) => {
+            const result = roundResultsMap.get(item.roundNumber);
+            const isWin = result === true;
+            const played = result !== undefined;
+
+            return (
+              <div
+                key={i}
+                className="rounded-full flex items-center justify-center text-white font-bold font-orbitron relative"
+                style={{
+                  width: i === 0 ? 36 : 30,
+                  height: i === 0 ? 36 : 30,
+                  background: DIGIT_COLORS[item.digit],
+                  fontSize: i === 0 ? 15 : 13,
+                  opacity: 1 - i * 0.05,
+                  boxShadow: i === 0
+                    ? `0 0 15px ${DIGIT_COLORS[item.digit]}88`
+                    : played
+                      ? isWin
+                        ? '0 0 8px #00ff88'
+                        : '0 0 8px #ff4444'
+                      : 'none',
+                  outline: played
+                    ? isWin
+                      ? '2px solid #00ff88'
+                      : '2px solid #ff4444'
+                    : 'none',
+                  outlineOffset: '2px'
+                }}
+              >
+                {item.digit}
+                {i === 0 && (
+                  <div className="absolute -top-1.5 -right-1.5 bg-white text-black text-[7px] font-bold px-1 py-0.5 rounded-md font-rajdhani">
+                    NEW
+                  </div>
+                )}
+                {/* Win/Loss indicator for played rounds */}
+                {played && i !== 0 && (
+                  <div
+                    className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full flex items-center justify-center text-[6px] font-bold ${
+                      isWin ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+                    }`}
+                  >
+                    {isWin ? '✓' : '✗'}
+                  </div>
+                )}
+              </div>
+            );
+          }) : (
             <span className="text-gray-600 text-xs font-rajdhani">No history yet</span>
           )}
         </div>

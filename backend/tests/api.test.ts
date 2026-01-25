@@ -21,6 +21,8 @@ vi.mock('../src/services/index.js', () => ({
       amount,
       status: 'confirmed',
       createdAt: new Date(),
+      transactionCount: 1,
+      sentAmounts: [amount],
     })),
   },
   identityService: {
@@ -37,7 +39,8 @@ vi.mock('../src/services/index.js', () => ({
 // Helper functions
 async function simulateNostrPayment(invoiceId: string, txId: string) {
   const { GameService } = await import('../src/services/game.service.js');
-  return GameService.confirmPayment(invoiceId, txId);
+  const result = await GameService.confirmPayment(invoiceId, txId);
+  return result.bet;
 }
 
 async function simulateRoundEnd(roundId: string) {

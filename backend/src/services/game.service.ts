@@ -142,7 +142,9 @@ export class GameService {
   // Called when payment is confirmed (webhook or polling)
   static async confirmPayment(
     invoiceId: string,
-    txId: string
+    txId: string,
+    tokenCount = 1,
+    receivedAmounts: number[] = []
   ): Promise<{ bet: IBet; accepted: boolean; refundReason?: string }> {
     const bet = await Bet.findOne({ invoiceId });
 
@@ -169,6 +171,27 @@ export class GameService {
       bet.refundReason = reason;
       await bet.save();
 
+      // Log rejected payment
+      await this.logPayment({
+        type: 'incoming',
+        amount: bet.totalAmount,
+        fromNametag: bet.userNametag,
+        toNametag: config.agentNametag,
+        txId,
+        relatedBetId: bet._id as mongoose.Types.ObjectId,
+        relatedRoundId: bet.roundId,
+        purpose: 'bet_payment',
+        metadata: {
+          roundNumber: bet.roundNumber,
+          bets: bet.bets,
+          tokenCount,
+          wasSplit: tokenCount > 1,
+          receivedAmounts: receivedAmounts.length > 0 ? receivedAmounts : [bet.totalAmount],
+          rejected: true,
+          refundReason: reason,
+        },
+      });
+
       // Initiate refund
       await this.refundPayment(bet, reason);
       return { bet: bet as IBet, accepted: false, refundReason: reason };
@@ -181,6 +204,27 @@ export class GameService {
       bet.paymentTxId = txId;
       bet.refundReason = reason;
       await bet.save();
+
+      // Log rejected payment
+      await this.logPayment({
+        type: 'incoming',
+        amount: bet.totalAmount,
+        fromNametag: bet.userNametag,
+        toNametag: config.agentNametag,
+        txId,
+        relatedBetId: bet._id as mongoose.Types.ObjectId,
+        relatedRoundId: bet.roundId,
+        purpose: 'bet_payment',
+        metadata: {
+          roundNumber: round.roundNumber,
+          bets: bet.bets,
+          tokenCount,
+          wasSplit: tokenCount > 1,
+          receivedAmounts: receivedAmounts.length > 0 ? receivedAmounts : [bet.totalAmount],
+          rejected: true,
+          refundReason: reason,
+        },
+      });
 
       // Initiate refund
       await this.refundPayment(bet, reason);
@@ -206,7 +250,13 @@ export class GameService {
       relatedBetId: bet._id as mongoose.Types.ObjectId,
       relatedRoundId: bet.roundId,
       purpose: 'bet_payment',
-      metadata: { roundNumber: round.roundNumber, bets: bet.bets },
+      metadata: {
+        roundNumber: round.roundNumber,
+        bets: bet.bets,
+        tokenCount,
+        wasSplit: tokenCount > 1,
+        receivedAmounts: receivedAmounts.length > 0 ? receivedAmounts : [bet.totalAmount],
+      },
     });
 
     // Update round pool
@@ -243,6 +293,9 @@ export class GameService {
           reason,
           roundNumber: bet.roundNumber,
           originalBets: bet.bets,
+          transactionCount: transfer.transactionCount,
+          wasSplit: transfer.transactionCount > 1,
+          sentAmounts: transfer.sentAmounts,
         },
       });
 
@@ -451,6 +504,9 @@ export class GameService {
             betOnWinningDigit: winningBetItem?.amount || 0,
             totalBetAmount: bet.totalAmount,
             userBets: bet.bets,
+            transactionCount: transfer.transactionCount,
+            wasSplit: transfer.transactionCount > 1,
+            sentAmounts: transfer.sentAmounts,
           },
         });
 
@@ -583,6 +639,9 @@ export class GameService {
         metadata: {
           previousBalance: balance.available,
           remainingBalance: balance.available - withdrawAmount,
+          transactionCount: transfer.transactionCount,
+          wasSplit: transfer.transactionCount > 1,
+          sentAmounts: transfer.sentAmounts,
         },
       });
 

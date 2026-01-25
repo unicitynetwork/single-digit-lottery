@@ -92,14 +92,38 @@ export class GameController {
     }
   }
 
-  // Get user bet history
+  // Get user bet history with win/loss result
   static async getUserBets(req: Request, res: Response): Promise<void> {
     try {
       const userNametag = req.params.userNametag as string;
       const limitParam = req.query.limit;
       const limit = typeof limitParam === 'string' ? parseInt(limitParam, 10) : 20;
       const bets = await GameService.getUserBets(userNametag, limit);
-      res.json({ success: true, data: bets });
+
+      // Add 'won' field to each bet
+      const betsWithResult = bets.map((bet) => {
+        const betObj = bet.toObject();
+        const round = betObj.roundId as {
+          status?: string;
+          winningDigit?: number | null;
+        } | null;
+
+        // Determine win/loss result
+        let won: boolean | null = null;
+
+        if (betObj.paymentStatus === 'paid' && round?.status === 'completed') {
+          // Round is completed - we know the result
+          won = betObj.winnings > 0;
+        }
+        // If round is not completed or bet not paid, won remains null (pending)
+
+        return {
+          ...betObj,
+          won,
+        };
+      });
+
+      res.json({ success: true, data: betsWithResult });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ success: false, error: message });

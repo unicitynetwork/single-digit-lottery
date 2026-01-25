@@ -36,15 +36,18 @@ export async function initializeServices(): Promise<void> {
   await nostrService.initialize();
 
   // Set up payment confirmation callback - auto-confirm payments via Nostr
-  nostrService.setPaymentConfirmedCallback(async (invoiceId, txId) => {
+  nostrService.setPaymentConfirmedCallback(async (paymentInfo) => {
+    const { invoiceId, txId, tokenCount, totalAmount, receivedAmounts } = paymentInfo;
     // eslint-disable-next-line no-console
-    console.log(`[Services] Payment received via Nostr: ${invoiceId}, txId: ${txId}`);
+    console.log(
+      `[Services] Payment received: ${totalAmount} UCT (${tokenCount} token${tokenCount > 1 ? 's' : ''}: ${receivedAmounts.join(' + ')}), invoice: ${invoiceId}`
+    );
 
     // Dynamically import to avoid circular dependency
     const { GameService } = await import('./game.service.js');
 
     try {
-      const result = await GameService.confirmPayment(invoiceId, txId);
+      const result = await GameService.confirmPayment(invoiceId, txId, tokenCount, receivedAmounts);
 
       if (result.accepted) {
         // eslint-disable-next-line no-console

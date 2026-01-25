@@ -78,13 +78,19 @@ export function MyBets() {
           <div className="space-y-3">
             {bets.map((bet) => {
               const roundInfo = getRoundInfo(bet);
-              const isWinner = bet.winnings > 0;
+              // Use 'won' field from API: true = won, false = lost, null = result unknown
+              const isWinner = bet.won === true;
+              const isLoser = bet.won === false;
 
               return (
                 <div
                   key={bet._id}
-                  className={`bg-white/5 border rounded-xl p-4 ${
-                    isWinner ? 'border-green-500/30' : 'border-white/10'
+                  className={`border rounded-xl p-4 ${
+                    isWinner
+                      ? 'bg-green-500/10 border-green-500/40'
+                      : isLoser
+                        ? 'bg-red-500/10 border-red-500/30'
+                        : 'bg-white/5 border-white/10'
                   }`}
                 >
                   <div className="flex items-start justify-between mb-3">
@@ -113,6 +119,18 @@ export function MyBets() {
                       }`}>
                         {bet.paymentStatus.toUpperCase()}
                       </span>
+
+                      {/* Result Badge - only show when result is known */}
+                      {isWinner && (
+                        <span className="px-2 py-0.5 rounded text-xs font-bold bg-green-500/30 text-green-300">
+                          WIN
+                        </span>
+                      )}
+                      {isLoser && (
+                        <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-500/30 text-red-300">
+                          LOSS
+                        </span>
+                      )}
                     </div>
 
                     {/* Amount & Winnings */}

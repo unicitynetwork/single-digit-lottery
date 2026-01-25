@@ -19,6 +19,8 @@ vi.mock('../src/services/index.js', () => ({
       amount,
       status: 'confirmed',
       createdAt: new Date(),
+      transactionCount: 1,
+      sentAmounts: [amount],
     })),
   },
 }));
@@ -165,10 +167,11 @@ describe('GameService', () => {
     it('should confirm payment and update bet status', async () => {
       const { bet, invoice } = await GameService.placeBets('ivan', [{ digit: 2, amount: 200 }]);
 
-      const confirmed = await GameService.confirmPayment(invoice.invoiceId, 'tx-123');
+      const result = await GameService.confirmPayment(invoice.invoiceId, 'tx-123');
 
-      expect(confirmed.paymentStatus).toBe('paid');
-      expect(confirmed.paymentTxId).toBe('tx-123');
+      expect(result.accepted).toBe(true);
+      expect(result.bet.paymentStatus).toBe('paid');
+      expect(result.bet.paymentTxId).toBe('tx-123');
     });
 
     it('should update round pool on payment', async () => {
@@ -198,8 +201,8 @@ describe('GameService', () => {
       const first = await GameService.confirmPayment(invoice.invoiceId, 'tx-first');
       const second = await GameService.confirmPayment(invoice.invoiceId, 'tx-second');
 
-      expect(first.paymentTxId).toBe('tx-first');
-      expect(second.paymentTxId).toBe('tx-first'); // Should not change
+      expect(first.bet.paymentTxId).toBe('tx-first');
+      expect(second.bet.paymentTxId).toBe('tx-first'); // Should not change
     });
 
     it('should throw on unknown invoice', async () => {
@@ -229,7 +232,7 @@ describe('GameService', () => {
       await GameService.closeRound(round._id.toString());
 
       await expect(GameService.closeRound(round._id.toString())).rejects.toThrow(
-        'Round is not open'
+        'Round not found or not open'
       );
     });
   });
@@ -247,7 +250,7 @@ describe('GameService', () => {
       expect(drawn.drawTime).toBeDefined();
     });
 
-    it('should calculate winnings for winners (9x payout)', async () => {
+    it('should calculate winnings for winners (pari-mutuel pool)', async () => {
       const round = await GameService.createRound();
 
       // Place and pay bets
@@ -262,7 +265,9 @@ describe('GameService', () => {
       await GameService.drawWinner(round._id.toString());
 
       const bet = await Bet.findOne({ userNametag: 'winner' });
-      expect(bet!.winnings).toBe(900); // 100 * 9
+      // Pari-mutuel: winner gets pool minus house fee (5%)
+      // Pool is 100, house fee is 5, so winner gets 95
+      expect(bet!.winnings).toBe(95);
       expect(bet!.payoutStatus).toBe('pending');
     });
 
@@ -288,7 +293,7 @@ describe('GameService', () => {
       const round = await GameService.createRound();
 
       await expect(GameService.drawWinner(round._id.toString())).rejects.toThrow(
-        'Round must be closed before drawing'
+        'Round not found or not closed'
       );
     });
   });

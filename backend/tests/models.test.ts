@@ -119,6 +119,7 @@ describe('Models', () => {
     it('should create bet with required fields', async () => {
       const bet = new Bet({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'player1',
         bets: [{ digit: 5, amount: 100 }],
         totalAmount: 100,
@@ -136,6 +137,7 @@ describe('Models', () => {
     it('should set default values', async () => {
       const bet = await Bet.create({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'player2',
         bets: [{ digit: 3, amount: 50 }],
         totalAmount: 50,
@@ -152,6 +154,7 @@ describe('Models', () => {
     it('should enforce unique invoiceId', async () => {
       await Bet.create({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'player3',
         bets: [{ digit: 1, amount: 10 }],
         totalAmount: 10,
@@ -172,6 +175,7 @@ describe('Models', () => {
     it('should validate digit range in bets (0-9)', async () => {
       const bet = new Bet({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'player5',
         bets: [{ digit: 15, amount: 100 }],
         totalAmount: 100,
@@ -184,6 +188,7 @@ describe('Models', () => {
     it('should validate amount minimum (1)', async () => {
       const bet = new Bet({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'player6',
         bets: [{ digit: 5, amount: 0 }],
         totalAmount: 0,
@@ -196,6 +201,7 @@ describe('Models', () => {
     it('should require at least one bet', async () => {
       const bet = new Bet({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'player7',
         bets: [],
         totalAmount: 0,
@@ -208,6 +214,7 @@ describe('Models', () => {
     it('should validate paymentStatus enum', async () => {
       const bet = new Bet({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'player8',
         bets: [{ digit: 7, amount: 100 }],
         totalAmount: 100,
@@ -221,6 +228,7 @@ describe('Models', () => {
     it('should validate payoutStatus enum', async () => {
       const bet = new Bet({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'player9',
         bets: [{ digit: 8, amount: 100 }],
         totalAmount: 100,
@@ -234,6 +242,7 @@ describe('Models', () => {
     it('should store multiple bets correctly', async () => {
       const bet = await Bet.create({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'multi-better',
         bets: [
           { digit: 0, amount: 10 },
@@ -268,6 +277,7 @@ describe('Models', () => {
     it('should populate roundId reference', async () => {
       const bet = await Bet.create({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'pop-test',
         bets: [{ digit: 4, amount: 100 }],
         totalAmount: 100,
@@ -288,6 +298,7 @@ describe('Models', () => {
 
       await Bet.create({
         roundId: round1._id,
+        roundNumber: 1,
         userNametag: 'r1-player',
         bets: [{ digit: 1, amount: 100 }],
         totalAmount: 100,
@@ -296,6 +307,7 @@ describe('Models', () => {
 
       await Bet.create({
         roundId: round2._id,
+        roundNumber: 2,
         userNametag: 'r2-player',
         bets: [{ digit: 2, amount: 200 }],
         totalAmount: 200,
@@ -317,6 +329,7 @@ describe('Models', () => {
 
       await Bet.create({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'alice',
         bets: [{ digit: 1, amount: 100 }],
         totalAmount: 100,
@@ -325,6 +338,7 @@ describe('Models', () => {
 
       await Bet.create({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'alice',
         bets: [{ digit: 2, amount: 200 }],
         totalAmount: 200,
@@ -333,6 +347,7 @@ describe('Models', () => {
 
       await Bet.create({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'bob',
         bets: [{ digit: 3, amount: 300 }],
         totalAmount: 300,
@@ -351,6 +366,7 @@ describe('Models', () => {
 
       await Bet.create({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'paid-user',
         bets: [{ digit: 5, amount: 100 }],
         totalAmount: 100,
@@ -360,6 +376,7 @@ describe('Models', () => {
 
       await Bet.create({
         roundId: round._id,
+        roundNumber: 1,
         userNametag: 'pending-user',
         bets: [{ digit: 6, amount: 100 }],
         totalAmount: 100,
