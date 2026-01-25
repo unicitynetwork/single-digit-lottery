@@ -455,7 +455,9 @@ export class GameService {
         });
 
         processed++;
-      } catch {
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error(`[GameService] Payout failed for @${bet.userNametag}:`, error);
         bet.payoutStatus = 'failed';
         await bet.save();
         failed++;
