@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ChangeEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { gameApi } from '../api/client';
 import type { BetItem } from '../api/client';
 import { useCurrentRound, usePreviousRound, useRoundHistory, usePlaceBets, useUserBetsInCurrentRound } from '../api/hooks';
@@ -10,26 +10,7 @@ import './lottery.css';
 
 type BetsState = Record<number, string>;
 
-interface LockedBetsData {
-  roundNumber: number;
-  bets: Record<number, number>; // digit -> total amount
-}
-
-const LOCKED_BETS_KEY = 'lottery_locked_bets';
 const NAMETAG_KEY = 'lottery_nametag';
-
-function loadLockedBets(): LockedBetsData | null {
-  try {
-    const data = localStorage.getItem(LOCKED_BETS_KEY);
-    return data ? JSON.parse(data) : null;
-  } catch {
-    return null;
-  }
-}
-
-function clearLockedBets(): void {
-  localStorage.removeItem(LOCKED_BETS_KEY);
-}
 
 function loadNametag(): string {
   try {
@@ -65,10 +46,16 @@ export function Home() {
   const [nametagStatus, setNametagStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
   const [nametagError, setNametagError] = useState<string | null>(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
-  const [roundResult, setRoundResult] = useState<{ show: boolean; won: boolean; amount: number } | null>(null);
+  const [roundResult, setRoundResult] = useState<{ show: boolean; won: boolean } | null>(null);
+  const [isSpinning, setIsSpinning] = useState(false);
+  const [spinningDigit, setSpinningDigit] = useState<number>(0);
   const queryClient = useQueryClient();
+  const location = useLocation();
   const prevRoundNumberRef = useRef<number | null>(null);
   const prevLockedBetsRef = useRef<Record<number, number>>({});
+  const lastWinningDigitRef = useRef<number | null>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const [underlineStyle, setUnderlineStyle] = useState({ left: 0, width: 0 });
 
   // Queries using custom hooks
   const { data: round, isLoading } = useCurrentRound();
@@ -81,21 +68,34 @@ export function Home() {
   // Mutation using custom hook
   const placeBetMutation = usePlaceBets();
 
-  const winningHistory = historyRounds
+  // Get winning history, but skip the newest entry while spinning
+  const allWinningHistory = historyRounds
     ?.filter(r => r.winningDigit !== null)
-    .map(r => r.winningDigit as number)
-    .slice(0, 12) || [];
+    .map(r => r.winningDigit as number) || [];
 
-  // Load locked bets from localStorage and handle round changes
+  // While spinning, don't show the latest winner in history (it will appear after animation)
+  const winningHistory = isSpinning
+    ? allWinningHistory.slice(1, 13)
+    : allWinningHistory.slice(0, 12);
+
+  // Keep prevLockedBetsRef in sync with server data for current round
+  useEffect(() => {
+    if (myCurrentRoundBets && myCurrentRoundBets.length > 0) {
+      const aggregated = myCurrentRoundBets.reduce<Record<number, number>>((acc, bet) => {
+        bet.bets.forEach(b => {
+          acc[b.digit] = (acc[b.digit] || 0) + b.amount;
+        });
+        return acc;
+      }, {});
+      prevLockedBetsRef.current = aggregated;
+    }
+  }, [myCurrentRoundBets]);
+
+  // Handle round changes and show win/lose result
   useEffect(() => {
     if (!round?.roundNumber) return;
 
-    const saved = loadLockedBets();
-
-    if (saved && saved.roundNumber === round.roundNumber) {
-      // Same round - restore locked bets to ref
-      prevLockedBetsRef.current = saved.bets;
-    } else if (prevRoundNumberRef.current !== null && prevRoundNumberRef.current !== round.roundNumber) {
+    if (prevRoundNumberRef.current !== null && prevRoundNumberRef.current !== round.roundNumber) {
       // Round changed - calculate result from previous bets
       const prevBets = prevLockedBetsRef.current;
       const hadBets = Object.values(prevBets).some(v => v > 0);
@@ -105,23 +105,46 @@ export function Home() {
         const betOnWinner = prevBets[winningDigit] || 0;
         // Use setTimeout to avoid synchronous setState in effect
         setTimeout(() => {
-          if (betOnWinner > 0) {
-            setRoundResult({ show: true, won: true, amount: betOnWinner * 9 });
-          } else {
-            setRoundResult({ show: true, won: false, amount: 0 });
-          }
+          setRoundResult({ show: true, won: betOnWinner > 0 });
           // Auto-hide after 5 seconds
           setTimeout(() => setRoundResult(null), 5000);
         }, 0);
       }
 
-      // Clear locked bets
-      clearLockedBets();
+      // Clear ref for new round
       prevLockedBetsRef.current = {};
     }
 
     prevRoundNumberRef.current = round.roundNumber;
   }, [round?.roundNumber, previousRound?.winningDigit]);
+
+  // Spinning animation when new winning digit appears
+  useEffect(() => {
+    const winningDigit = previousRound?.winningDigit;
+
+    // Check if we have a new winning digit
+    if (winningDigit !== null && winningDigit !== undefined && winningDigit !== lastWinningDigitRef.current) {
+      // Start spinning animation
+      setIsSpinning(true);
+
+      let spinCount = 0;
+      const totalSpins = 20; // Number of digit changes
+      const spinInterval = setInterval(() => {
+        setSpinningDigit(Math.floor(Math.random() * 10));
+        spinCount++;
+
+        if (spinCount >= totalSpins) {
+          clearInterval(spinInterval);
+          setSpinningDigit(winningDigit);
+          setIsSpinning(false);
+        }
+      }, 100); // Speed of spinning
+
+      lastWinningDigitRef.current = winningDigit;
+
+      return () => clearInterval(spinInterval);
+    }
+  }, [previousRound?.winningDigit]);
 
   // Validate nametag
   const validateNametag = useCallback(async (nametag: string) => {
@@ -152,6 +175,25 @@ export function Home() {
     }, 500);
     return () => clearTimeout(timer);
   }, [userNametag, validateNametag]);
+
+  // Update underline position based on active tab
+  useEffect(() => {
+    const updateUnderline = () => {
+      if (!navRef.current) return;
+      const activeTab = navRef.current.querySelector('[data-active="true"]') as HTMLElement;
+      if (activeTab) {
+        const navRect = navRef.current.getBoundingClientRect();
+        const tabRect = activeTab.getBoundingClientRect();
+        setUnderlineStyle({
+          left: tabRect.left - navRect.left,
+          width: tabRect.width,
+        });
+      }
+    };
+    updateUnderline();
+    window.addEventListener('resize', updateUnderline);
+    return () => window.removeEventListener('resize', updateUnderline);
+  }, [location.pathname, userNametag, nametagStatus]);
 
   // Timer effect
   useEffect(() => {
@@ -258,9 +300,11 @@ export function Home() {
   const isRoundOpen = round?.status === 'open';
   const canPlaceBet = currentBet > 0 && isRoundOpen && !placeBetMutation.isPending;
 
-  const displayDigit = previousRound?.winningDigit ?? null;
+  // Show spinning digit during animation, otherwise show winning digit
+  const actualWinningDigit = previousRound?.winningDigit ?? null;
+  const displayDigit = isSpinning ? spinningDigit : actualWinningDigit;
   const displayColor = displayDigit !== null ? DIGIT_COLORS[displayDigit] : '#00ff88';
-  const showResult = previousRound?.winningDigit !== null;
+  const showResult = actualWinningDigit !== null;
 
   // Calculate potential win ratio based on pool (pari-mutuel)
   const poolSize = round?.totalPool ?? 0;
@@ -284,12 +328,21 @@ export function Home() {
           </div>
         </div>
 
-        <nav className="flex gap-6 font-rajdhani text-[11px] font-semibold tracking-widest">
-          <span className="text-[#00ff88]">PLAY</span>
-          <Link to="/history" className="text-gray-500 no-underline hover:text-gray-300">HISTORY</Link>
+        <nav ref={navRef} className="relative flex gap-6 font-rajdhani text-[11px] font-semibold tracking-widest">
+          <span data-active="true" className="text-[#00ff88] cursor-default">PLAY</span>
+          <Link to="/history" data-active="false" className="text-gray-500 no-underline hover:text-gray-300">HISTORY</Link>
           {userNametag && nametagStatus === 'valid' && (
-            <Link to={`/bets/${userNametag}`} className="text-gray-500 no-underline hover:text-gray-300">MY BETS</Link>
+            <Link to={`/bets/${userNametag}`} data-active="false" className="text-gray-500 no-underline hover:text-gray-300">MY BETS</Link>
           )}
+          {/* Animated underline */}
+          <div
+            className="absolute -bottom-2 h-0.5 bg-[#00ff88] transition-all duration-300 ease-out"
+            style={{
+              left: underlineStyle.left,
+              width: underlineStyle.width,
+              boxShadow: '0 0 8px #00ff88, 0 0 12px #00ff8866',
+            }}
+          />
         </nav>
 
         {nametagStatus === 'valid' ? (
@@ -412,18 +465,13 @@ export function Home() {
         </div>
 
         {/* Round Result - fixed height to prevent layout jump */}
-        <div className="h-16 flex items-center justify-center mb-2">
+        <div className="h-12 flex items-center justify-center mb-2">
           {roundResult?.show && (
             <div className="text-center">
               {roundResult.won ? (
-                <>
-                  <div className="text-2xl font-extrabold text-[#00ff88] drop-shadow-[0_0_20px_#00ff88]">
-                    YOU WIN!
-                  </div>
-                  <div className="text-lg text-[#ffd700] font-rajdhani mt-1">
-                    +{roundResult.amount} UCT
-                  </div>
-                </>
+                <div className="text-2xl font-extrabold text-[#00ff88] drop-shadow-[0_0_20px_#00ff88]">
+                  YOU WIN!
+                </div>
               ) : (
                 <div className="text-xl font-bold text-[#ff4444]">Better luck next time!</div>
               )}
