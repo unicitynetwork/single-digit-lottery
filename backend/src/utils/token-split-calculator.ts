@@ -56,7 +56,9 @@ export class TokenSplitCalculator {
     coinIdHex: string
   ): Promise<SplitPlan | null> {
     // eslint-disable-next-line no-console
-    console.log(`[TokenSplitCalculator] Calculating split for ${targetAmount} of ${coinIdHex.slice(0, 8)}...`);
+    console.log(
+      `[TokenSplitCalculator] Calculating split for ${targetAmount} of ${coinIdHex.slice(0, 8)}...`
+    );
 
     const coinId = CoinId.fromJSON(coinIdHex);
     const candidates: TokenWithAmount[] = [];
@@ -108,7 +110,13 @@ export class TokenSplitCalculator {
     const toTransfer: TokenWithAmount[] = [];
     let currentSum = 0n;
 
+    // eslint-disable-next-line no-console
+    console.log(`[TokenSplitCalculator] Target amount (raw): ${targetAmount}`);
+
     for (const candidate of candidates) {
+      // eslint-disable-next-line no-console
+      console.log(`[TokenSplitCalculator] Candidate token: ${candidate.amount} (raw)`);
+
       const newSum = currentSum + candidate.amount;
 
       if (newSum === targetAmount) {
@@ -117,13 +125,17 @@ export class TokenSplitCalculator {
       } else if (newSum < targetAmount) {
         toTransfer.push(candidate);
         currentSum = newSum;
+        // eslint-disable-next-line no-console
+        console.log(`[TokenSplitCalculator] Added to direct transfers. CurrentSum: ${currentSum}`);
       } else {
         // This token is larger than what we need - split it
         const neededFromThisToken = targetAmount - currentSum;
         const remainderForMe = candidate.amount - neededFromThisToken;
 
         // eslint-disable-next-line no-console
-        console.log(`[TokenSplitCalculator] Split required. Need: ${neededFromThisToken}, Remainder: ${remainderForMe}`);
+        console.log(
+          `[TokenSplitCalculator] Split required. CurrentSum: ${currentSum}, Need: ${neededFromThisToken}, Remainder: ${remainderForMe}`
+        );
 
         return {
           tokensToTransferDirectly: toTransfer,

@@ -21,7 +21,7 @@ import { CoinId } from '@unicitylabs/state-transition-sdk/lib/token/fungible/Coi
 import { waitInclusionProof } from '@unicitylabs/state-transition-sdk/lib/util/InclusionProofUtils.js';
 import type { IdentityService } from './identity.service.js';
 import { TokenSplitExecutor } from '../utils/token-split-executor.js';
-import { DECIMALS_MULTIPLIER } from '../utils/currency.js';
+import { TokenSplitCalculator, type StoredToken } from '../utils/token-split-calculator.js';
 
 export interface NostrConfig {
   relayUrl: string;
@@ -61,6 +61,9 @@ export interface PendingPayment {
   amount: number;
   createdAt: number;
   resolve: (result: { success: boolean; txId?: string }) => void;
+  // For multi-token payments (stored in smallest units - 18 decimals)
+  receivedAmountRaw: bigint;
+  receivedTxIds: string[];
 }
 
 export type PaymentConfirmedCallback = (invoiceId: string, txId: string) => void;
@@ -215,34 +218,48 @@ export class NostrService {
         return;
       }
 
-      // Validate payment amount before processing
-      const amountValidation = await this.validatePaymentAmount(payloadObj, pending.amount);
-      if (!amountValidation.valid) {
-        // eslint-disable-next-line no-console
-        console.error(
-          `[NostrService] Payment amount mismatch: expected ${pending.amount} UCT, got ${amountValidation.receivedAmount} UCT`
-        );
-        pending.resolve({ success: false });
-        this.pendingPayments.delete(pendingKey);
-        return;
-      }
+      // Get token amount (full precision bigint)
+      const tokenAmountRaw = await this.getTokenAmount(payloadObj);
 
-      // Process and finalize the token
+      // Process and save the token regardless of amount
       const success = await this.processTokenTransfer(payloadObj);
 
-      if (success) {
+      if (!success) {
+        // eslint-disable-next-line no-console
+        console.error('[NostrService] Failed to process token transfer');
+        return; // Don't delete pending - user might send another token
+      }
+
+      // Accumulate received amount (in raw units - 18 decimals)
+      pending.receivedAmountRaw += tokenAmountRaw;
+      pending.receivedTxIds.push(event.id);
+
+      // Convert expected amount to raw (18 decimals)
+      const expectedAmountRaw = BigInt(Math.round(pending.amount * 1e18));
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[NostrService] Received ${this.rawToDisplay(tokenAmountRaw)} UCT (total: ${this.rawToDisplay(pending.receivedAmountRaw)}/${pending.amount} UCT)`
+      );
+
+      // Check if we have enough (allow tiny tolerance for rounding - 0.0001 UCT)
+      const tolerance = 10n ** 14n;
+      if (pending.receivedAmountRaw >= expectedAmountRaw - tolerance) {
         // eslint-disable-next-line no-console
         console.log(`[NostrService] Payment confirmed for invoice ${pending.invoiceId}`);
 
         if (this.onPaymentConfirmed) {
           this.onPaymentConfirmed(pending.invoiceId, event.id);
         }
-        pending.resolve({ success: true, txId: event.id });
+        pending.resolve({ success: true, txId: pending.receivedTxIds.join(',') });
+        this.pendingPayments.delete(pendingKey);
       } else {
-        pending.resolve({ success: false });
+        const needed = expectedAmountRaw - pending.receivedAmountRaw;
+        // eslint-disable-next-line no-console
+        console.log(
+          `[NostrService] Waiting for more tokens... need ${this.rawToDisplay(needed)} more UCT`
+        );
       }
-
-      this.pendingPayments.delete(pendingKey);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[NostrService] Error processing transfer:', err);
@@ -250,13 +267,10 @@ export class NostrService {
   }
 
   /**
-   * Validate that the received token amount matches the expected payment amount
+   * Get the token amount from payload (returns raw bigint for full precision)
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async validatePaymentAmount(
-    payloadObj: Record<string, any>,
-    expectedAmount: number
-  ): Promise<{ valid: boolean; receivedAmount: number }> {
+  private async getTokenAmount(payloadObj: Record<string, any>): Promise<bigint> {
     try {
       let sourceTokenInput = payloadObj['sourceToken'];
       if (typeof sourceTokenInput === 'string') {
@@ -264,34 +278,44 @@ export class NostrService {
       }
 
       if (!sourceTokenInput) {
-        return { valid: false, receivedAmount: 0 };
+        return 0n;
       }
 
       const sourceToken = await Token.fromJSON(sourceTokenInput);
       const coinId = CoinId.fromJSON(this.config.coinId);
 
       if (!sourceToken.coins) {
-        return { valid: false, receivedAmount: 0 };
+        return 0n;
       }
 
       const balance = sourceToken.coins.get(coinId);
-      if (!balance) {
-        return { valid: false, receivedAmount: 0 };
-      }
-
-      const receivedAmount = Number(balance / DECIMALS_MULTIPLIER);
-      const expectedWithDecimals = BigInt(Math.round(expectedAmount * 10000)) * 10n ** 14n;
-
-      // Allow small tolerance for rounding (0.0001 UCT)
-      const tolerance = 10n ** 14n; // 0.0001 UCT
-      const valid = balance >= expectedWithDecimals - tolerance;
-
-      return { valid, receivedAmount };
+      return balance ?? 0n;
     } catch (error) {
       // eslint-disable-next-line no-console
-      console.error('[NostrService] Error validating payment amount:', error);
-      return { valid: false, receivedAmount: 0 };
+      console.error('[NostrService] Error getting token amount:', error);
+      return 0n;
     }
+  }
+
+  /**
+   * Convert raw amount (18 decimals) to human readable string (max 4 decimal places)
+   */
+  private rawToDisplay(raw: bigint): string {
+    const str = raw.toString().padStart(19, '0');
+    const integer = str.slice(0, -18) || '0';
+    // Take first 4 decimal places, remove trailing zeros
+    const fraction = str.slice(-18, -14).replace(/0+$/, '');
+    return fraction ? `${integer}.${fraction}` : integer;
+  }
+
+  /**
+   * Convert human readable amount to raw (18 decimals)
+   */
+  private parseAmountToRaw(amount: number): bigint {
+    const str = amount.toString();
+    const [integer, fraction = ''] = str.split('.');
+    const paddedFraction = fraction.padEnd(18, '0').slice(0, 18);
+    return BigInt(integer + paddedFraction);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -500,8 +524,8 @@ export class NostrService {
     // eslint-disable-next-line no-console
     console.log(`[NostrService] Sending payment request to ${userPubkey.slice(0, 16)}...`);
 
-    // Convert amount to token units (18 decimals), supports decimals up to 0.0001
-    const amountWithDecimals = BigInt(Math.round(amount * 10000)) * 10n ** 14n;
+    // Convert amount to token units (full 18 decimal precision)
+    const amountWithDecimals = this.parseAmountToRaw(amount);
 
     // Format bet details for message (includes round number for validation)
     const betsStr = bets.map((b) => `#${b.digit}:${b.amount}`).join(', ');
@@ -531,6 +555,8 @@ export class NostrService {
       amount,
       createdAt: Date.now(),
       resolve: resolvePayment,
+      receivedAmountRaw: 0n,
+      receivedTxIds: [],
     };
 
     this.pendingPayments.set(eventId, pending);
@@ -616,7 +642,7 @@ export class NostrService {
   }
 
   // Send a single token (internal helper)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   private async sendSingleToken(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     token: Token<any>,
@@ -628,7 +654,7 @@ export class NostrService {
       throw new Error('Nostr client not connected');
     }
 
-    const amountWithDecimals = BigInt(Math.round(amount * 10000)) * 10n ** 14n;
+    const amountWithDecimals = this.parseAmountToRaw(amount);
     const recipientAddress = await ProxyAddress.fromNameTag(toNametag);
     const signingService = this.identityService.getSigningService();
     const stateTransitionClient = this.identityService.getStateTransitionClient();
@@ -703,7 +729,7 @@ export class NostrService {
     }
 
     // eslint-disable-next-line no-console
-    console.log(`[NostrService] Sending ${amount} tokens to @${toNametag}...`);
+    console.log(`[NostrService] Sending ${amount} UCT to @${toNametag}...`);
 
     // Resolve recipient's pubkey
     const recipientPubkey = await this.resolvePubkey(toNametag);
@@ -720,61 +746,65 @@ export class NostrService {
     // eslint-disable-next-line no-console
     console.log(`[NostrService] Loaded ${tokens.length} tokens from storage`);
 
-    const amountWithDecimals = BigInt(Math.round(amount * 10000)) * 10n ** 14n;
-    const coinId = CoinId.fromJSON(this.config.coinId);
+    // Convert to StoredToken format for calculator
+    const storedTokens: StoredToken[] = tokens.map((t) => ({
+      filePath: t.filePath,
+      sdkToken: t.token,
+    }));
 
-    // Collect tokens with balances, sorted by balance (largest first)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tokensWithBalances: { token: Token<any>; balance: bigint; filePath: string }[] = [];
-    for (const item of tokens) {
-      if (!item.token.coins) continue;
-      const balance = item.token.coins.get(coinId);
-      if (balance && balance > 0n) {
-        tokensWithBalances.push({ token: item.token, balance, filePath: item.filePath });
-      }
-    }
-    tokensWithBalances.sort((a, b) => (b.balance > a.balance ? 1 : -1));
+    // Calculate optimal split plan
+    const calculator = new TokenSplitCalculator();
+    const targetAmount = this.parseAmountToRaw(amount);
+    const plan = await calculator.calculateOptimalSplit(
+      storedTokens,
+      targetAmount,
+      this.config.coinId
+    );
 
-    // Calculate total available balance
-    const totalBalance = tokensWithBalances.reduce((sum, t) => sum + t.balance, 0n);
-    if (totalBalance < amountWithDecimals) {
-      // Use proper decimal conversion (divide to 4 decimal places)
-      const totalUCT = Number(totalBalance / (10n ** 14n)) / 10000;
-      throw new Error(`Insufficient balance. Need ${amount} UCT, have ${totalUCT} UCT`);
+    if (!plan) {
+      throw new Error(`Insufficient balance for ${amount} UCT`);
     }
 
-    // Check if single token is enough
-    const singleToken = tokensWithBalances.find((t) => t.balance >= amountWithDecimals);
-    if (singleToken) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[NostrService] Plan: ${plan.tokensToTransferDirectly.length} direct transfers, split: ${plan.requiresSplit}`
+    );
+
+    const transferIds: string[] = [];
+
+    // Step 1: Transfer whole tokens directly
+    for (const item of plan.tokensToTransferDirectly) {
+      const tokenAmount = Number(item.amount / 10n ** 14n) / 10000;
       // eslint-disable-next-line no-console
-      console.log(
-        `[NostrService] Found token with ${singleToken.balance / DECIMALS_MULTIPLIER} UCT`
+      console.log(`[NostrService] Transferring whole token: ${this.rawToDisplay(item.amount)} UCT`);
+
+      const transferId = await this.sendSingleToken(
+        item.sdkToken,
+        toNametag,
+        recipientPubkey,
+        tokenAmount
       );
 
-      // If exact match, transfer whole token directly
-      if (singleToken.balance === amountWithDecimals) {
+      // Delete the token file after successful transfer
+      try {
+        fs.unlinkSync(item.filePath);
         // eslint-disable-next-line no-console
-        console.log(`[NostrService] Exact match - transferring whole token`);
-        const transferId = await this.sendSingleToken(
-          singleToken.token,
-          toNametag,
-          recipientPubkey,
-          amount
-        );
-        return { transferId, toNametag, amount, status: 'sent', createdAt: new Date() };
+        console.log(`[NostrService] Deleted transferred token: ${item.filePath}`);
+      } catch {
+        // Ignore deletion errors
       }
 
-      // Token is larger than needed - must SPLIT
+      transferIds.push(transferId);
+    }
+
+    // Step 2: Split token if needed
+    if (plan.requiresSplit && plan.tokenToSplit && plan.splitAmount && plan.remainderAmount) {
       // eslint-disable-next-line no-console
-      console.log(`[NostrService] Token larger than needed - splitting...`);
+      console.log(
+        `[NostrService] Splitting token: ${this.rawToDisplay(plan.splitAmount)} UCT to recipient, ${this.rawToDisplay(plan.remainderAmount)} UCT as change`
+      );
 
       const recipientAddress = await ProxyAddress.fromNameTag(toNametag);
-      const remainderAmount = singleToken.balance - amountWithDecimals;
-
-      // eslint-disable-next-line no-console
-      console.log(
-        `[NostrService] Split: ${amount} UCT to recipient, ${Number(remainderAmount) / Number(DECIMALS_MULTIPLIER)} UCT as change`
-      );
 
       const splitExecutor = new TokenSplitExecutor({
         stateTransitionClient: this.identityService.getStateTransitionClient(),
@@ -783,15 +813,14 @@ export class NostrService {
       });
 
       const splitResult = await splitExecutor.executeSplit(
-        singleToken.token,
-        amountWithDecimals,
-        remainderAmount,
+        plan.tokenToSplit.sdkToken,
+        plan.splitAmount,
+        plan.remainderAmount,
         this.config.coinId,
         recipientAddress
       );
 
-      // CRITICAL: Save the change token FIRST before any other operations
-      // This ensures we don't lose funds if subsequent steps fail
+      // CRITICAL: Save the change token FIRST
       const changeTokenIdHex = Buffer.from(splitResult.tokenForSender.id.bytes).toString('hex');
       const changeTokenPath = path.join(
         this.config.dataDir,
@@ -805,12 +834,12 @@ export class NostrService {
       // eslint-disable-next-line no-console
       console.log(`[NostrService] Saved change token: ${changeTokenPath}`);
 
-      // Now safe to delete the original token file (already burned on-chain)
-      fs.unlinkSync(singleToken.filePath);
+      // Delete the original token file
+      fs.unlinkSync(plan.tokenToSplit.filePath);
       // eslint-disable-next-line no-console
-      console.log(`[NostrService] Deleted burned token file: ${singleToken.filePath}`);
+      console.log(`[NostrService] Deleted burned token: ${plan.tokenToSplit.filePath}`);
 
-      // Send the recipient token via Nostr
+      // Send recipient token via Nostr
       const transferPayload = JSON.stringify({
         sourceToken: splitResult.tokenForRecipient.toJSON(),
         transferTx: splitResult.recipientTransferTx.toJSON(),
@@ -820,22 +849,26 @@ export class NostrService {
         this.keyManager,
         recipientPubkey,
         transferPayload,
-        { amount: amountWithDecimals, symbol: 'UCT' }
+        { amount: plan.splitAmount, symbol: 'UCT' }
       );
 
       await this.client.publishEvent(transferEvent);
+      transferIds.push(transferEvent.id);
 
       // eslint-disable-next-line no-console
       console.log(`[NostrService] Split transfer complete: ${transferEvent.id.slice(0, 16)}...`);
-
-      return { transferId: transferEvent.id, toNametag, amount, status: 'sent', createdAt: new Date() };
     }
 
-    // Need multiple tokens - for now, throw error (complex case)
-    // TODO: Implement multi-token combining with splits
-    throw new Error(
-      `No single token large enough for ${amount} UCT. Multi-token combining not yet supported.`
-    );
+    // eslint-disable-next-line no-console
+    console.log(`[NostrService] All transfers complete: ${transferIds.length} transactions`);
+
+    return {
+      transferId: transferIds.join(','),
+      toNametag,
+      amount,
+      status: 'sent',
+      createdAt: new Date(),
+    };
   }
 
   getPublicKey(): string {
