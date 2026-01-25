@@ -31,8 +31,11 @@ app.use((req, _res, next) => {
 // Routes
 app.use('/api/game', gameRoutes);
 
-// Health check
+// Health check (both paths for flexibility)
 app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 

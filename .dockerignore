@@ -1,0 +1,50 @@
+# Dependencies
+node_modules
+*/node_modules
+
+# Build outputs
+backend/dist
+frontend/dist
+
+# Development files
+.git
+.gitignore
+*.md
+!README.md
+
+# Environment files (use Docker secrets or env_file instead)
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage
+.nyc_output
+
+# Docker files (prevent recursive builds)
+Dockerfile*
+docker-compose*
+.docker
+
+# Misc
+.claude
+*.tgz
+*.tar.gz

@@ -1,0 +1,46 @@
+version: '3.8'
+
+# Development Docker Compose
+# Usage: docker-compose -f docker-compose.dev.yml up -d
+
+services:
+  # =============================================================================
+  # MongoDB Database (for development)
+  # =============================================================================
+  mongodb:
+    image: mongo:7
+    container_name: lottery-mongodb-dev
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: single-digit-lottery
+    volumes:
+      - mongodb_data_dev:/data/db
+    networks:
+      - lottery-network-dev
+
+  # =============================================================================
+  # Mongo Express (Database GUI - optional)
+  # =============================================================================
+  mongo-express:
+    image: mongo-express
+    container_name: lottery-mongo-express
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/
+      ME_CONFIG_BASICAUTH: "false"
+    depends_on:
+      - mongodb
+    networks:
+      - lottery-network-dev
+
+networks:
+  lottery-network-dev:
+    driver: bridge
+
+volumes:
+  mongodb_data_dev:
+    driver: local
