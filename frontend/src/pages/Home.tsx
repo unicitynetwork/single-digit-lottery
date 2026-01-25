@@ -88,6 +88,7 @@ export function Home() {
   const prevRoundNumberRef = useRef<number | null>(null);
   const prevLockedBetsRef = useRef<Record<number, number>>({});
   const lastWinningDigitRef = useRef<number | null>(null);
+  const hasInitializedWinningDigitRef = useRef(false);
 
   // Queries using custom hooks
   const { data: round, isLoading } = useCurrentRound();
@@ -175,28 +176,42 @@ export function Home() {
   useEffect(() => {
     const winningDigit = previousRound?.winningDigit;
 
-    // Check if we have a new winning digit
-    if (winningDigit !== null && winningDigit !== undefined && winningDigit !== lastWinningDigitRef.current) {
-      // Start spinning animation
-      setIsSpinning(true);
-
-      let spinCount = 0;
-      const totalSpins = 20; // Number of digit changes
-      const spinInterval = setInterval(() => {
-        setSpinningDigit(Math.floor(Math.random() * 10));
-        spinCount++;
-
-        if (spinCount >= totalSpins) {
-          clearInterval(spinInterval);
-          setSpinningDigit(winningDigit);
-          setIsSpinning(false);
-        }
-      }, 100); // Speed of spinning
-
-      lastWinningDigitRef.current = winningDigit;
-
-      return () => clearInterval(spinInterval);
+    // No winning digit available yet
+    if (winningDigit === null || winningDigit === undefined) {
+      return;
     }
+
+    // First time seeing a winning digit (page load) - just store it, no animation
+    if (!hasInitializedWinningDigitRef.current) {
+      hasInitializedWinningDigitRef.current = true;
+      lastWinningDigitRef.current = winningDigit;
+      return;
+    }
+
+    // Same winning digit as before - no animation needed
+    if (winningDigit === lastWinningDigitRef.current) {
+      return;
+    }
+
+    // New winning digit! Start spinning animation
+    setIsSpinning(true);
+
+    let spinCount = 0;
+    const totalSpins = 20; // Number of digit changes
+    const spinInterval = setInterval(() => {
+      setSpinningDigit(Math.floor(Math.random() * 10));
+      spinCount++;
+
+      if (spinCount >= totalSpins) {
+        clearInterval(spinInterval);
+        setSpinningDigit(winningDigit);
+        setIsSpinning(false);
+      }
+    }, 100); // Speed of spinning
+
+    lastWinningDigitRef.current = winningDigit;
+
+    return () => clearInterval(spinInterval);
   }, [previousRound?.winningDigit]);
 
   // Validate nametag
@@ -339,9 +354,6 @@ export function Home() {
   const displayDigit = isSpinning ? spinningDigit : actualWinningDigit;
   const displayColor = displayDigit !== null ? DIGIT_COLORS[displayDigit] : '#00ff88';
   const showResult = actualWinningDigit !== null;
-
-  // Calculate potential win ratio based on pool (pari-mutuel)
-  const poolSize = round?.totalPool ?? 0;
 
   return (
     <div className="lottery-container min-h-screen bg-linear-to-br from-[#0a0a0f] via-[#1a1a2e] to-[#0f0f1a] font-orbitron text-white relative overflow-x-hidden">
@@ -525,14 +537,14 @@ export function Home() {
 
         {/* Betting Area */}
         <div className="bg-linear-to-br from-[#0f0f1a] to-[#1a1a2e] border border-white/5 rounded-2xl p-3 md:p-5 mb-2">
-          <div className="flex justify-between mb-4">
+          <div className="flex justify-between items-center mb-4">
             <span className="text-gray-500 text-sm tracking-widest font-rajdhani">PLACE YOUR BETS</span>
             {currentBet > 0 && (
               <button
                 onClick={handleClearAll}
-                className="bg-transparent border border-[#ff6b6b44] rounded px-2.5 py-1.5 text-[#ff6b6b] text-sm cursor-pointer font-rajdhani hover:border-[#ff6b6b]"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ff6b6b]/10 border border-[#ff6b6b]/30 rounded-lg text-[#ff6b6b] text-xs font-rajdhani font-semibold tracking-wide hover:bg-[#ff6b6b]/20 hover:border-[#ff6b6b]/50 transition-all"
               >
-                CLEAR
+                <X size={14} /> CLEAR
               </button>
             )}
           </div>
@@ -577,7 +589,7 @@ export function Home() {
             })}
           </div>
 
-          <div className="flex flex-col md:flex-row items-center justify-center gap-2 md:gap-4">
+          <div className="flex items-center justify-center">
             <button
               onClick={handlePlaceBet}
               disabled={!canPlaceBet}
@@ -587,16 +599,13 @@ export function Home() {
                   : 'bg-[#333] text-gray-500 cursor-not-allowed'
               }`}
             >
-              {placeBetMutation.isPending ? 'SENDING...' : 'PLACE BET'}
+              {placeBetMutation.isPending
+                ? 'SENDING...'
+                : currentBet > 0
+                  ? `BET ${currentBet} ${config.tokenSymbol}`
+                  : 'PLACE BET'
+              }
             </button>
-            {currentBet > 0 && (
-              <span className="text-gray-400 text-xs md:text-sm font-rajdhani text-center">
-                Total: <span className="text-[#ffd700] font-bold">{currentBet} {config.tokenSymbol}</span>
-                <span className="text-gray-600 ml-2">
-                  Pool: {poolSize + currentBet}
-                </span>
-              </span>
-            )}
           </div>
         </div>
 
