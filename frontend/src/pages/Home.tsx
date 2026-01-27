@@ -67,6 +67,7 @@ export function Home() {
   const hasTriggeredDrawRef = useRef(false); // Prevent repeated triggers when timer=0
   const animationStartTimeRef = useRef<number | null>(null); // Track when animation started
   const waitingForRoundRef = useRef<number | null>(null); // Track which round we're waiting for
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]); // Refs for digit inputs
 
   // Queries using custom hooks
   const { data: round, isLoading } = useCurrentRound();
@@ -165,14 +166,18 @@ export function Home() {
     const winningDigit = previousRound?.winningDigit;
     const prevRoundNumber = previousRound?.roundNumber;
 
+    console.log('[Landing] isSpinning:', isSpinning, 'prevRound#:', prevRoundNumber, 'winningDigit:', winningDigit, 'waitingFor:', waitingForRoundRef.current);
+
     // No winning digit yet - keep spinning
     if (winningDigit === null || winningDigit === undefined) {
+      console.log('[Landing] No winning digit yet, keep spinning');
       return;
     }
 
     // Check if this is the round we're waiting for
     // If we're waiting for a specific round and this isn't it, keep spinning
     if (waitingForRoundRef.current !== null && prevRoundNumber !== waitingForRoundRef.current) {
+      console.log('[Landing] Round mismatch! Got #', prevRoundNumber, 'but waiting for #', waitingForRoundRef.current);
       return;
     }
 
@@ -194,8 +199,11 @@ export function Home() {
       lastPreviousRoundNumberRef.current = prevRoundNumber ?? null;
       waitingForRoundRef.current = null; // Clear waiting state
 
-      // Refetch current round to get new timer immediately
+      // Refetch all data after round ends
       queryClient.refetchQueries({ queryKey: ['currentRound'] });
+      queryClient.refetchQueries({ queryKey: ['roundHistory'] });
+      queryClient.refetchQueries({ queryKey: ['userBetsCurrentRound'] });
+      queryClient.refetchQueries({ queryKey: ['userBets'] });
 
       // Show win/loss result
       const savedBets = prevLockedBetsRef.current;
@@ -223,9 +231,17 @@ export function Home() {
       pollCount++;
 
       try {
+        // First try current round
         const response = await gameApi.getUserBetsInCurrentRound(userNametag);
-        const bets = response.data.data;
-        const pendingBet = bets.find(b => b._id === pendingBetId);
+        const currentBets = response.data.data;
+        let pendingBet = currentBets.find(b => b._id === pendingBetId);
+
+        // If not found in current round, check user's bet history (round may have closed)
+        if (!pendingBet) {
+          const historyResponse = await gameApi.getUserBets(userNametag, 10);
+          const historyBets = historyResponse.data.data;
+          pendingBet = historyBets.find(b => b._id === pendingBetId);
+        }
 
         if (pendingBet) {
           if (pendingBet.paymentStatus === 'paid') {
@@ -272,37 +288,17 @@ export function Home() {
 
   // Polling for previousRound when waiting for draw result
   useEffect(() => {
-    // Only poll while waiting for draw result
-    if (!isWaitingForDraw) return;
+    // Only poll while spinning (waiting for result)
+    if (!isSpinning) return;
 
-    // Check if we already have a NEW winning digit - if so, no need to poll
-    const winningDigit = previousRound?.winningDigit;
-    if (winningDigit !== null && winningDigit !== undefined) {
-      const isNewResult =
-        winningDigit !== lastWinningDigitRef.current ||
-        previousRound?.roundNumber !== lastPreviousRoundNumberRef.current;
-
-      if (isNewResult) {
-        // We have the new result, landing effect will handle it
-        return;
-      }
-    }
-
-    // Poll every 500ms to get the winning digit, max 3 requests
-    let pollCount = 0;
-    const maxPolls = 3;
-
+    // Poll every 500ms to get the winning digit until we land
     const pollInterval = setInterval(() => {
-      pollCount++;
-      if (pollCount > maxPolls) {
-        clearInterval(pollInterval);
-        return;
-      }
+      console.log('[Polling] Fetching previousRound...');
       queryClient.refetchQueries({ queryKey: ['previousRound'] });
     }, 500);
 
     return () => clearInterval(pollInterval);
-  }, [isWaitingForDraw, previousRound?.winningDigit, previousRound?.roundNumber, queryClient]);
+  }, [isSpinning, queryClient]);
 
   // Validate nametag
   const validateNametag = useCallback(async (nametag: string) => {
@@ -489,7 +485,7 @@ export function Home() {
   const showResult = actualWinningDigit !== null;
 
   return (
-    <div className="lottery-container min-h-screen bg-linear-to-br from-[#0a0a0f] via-[#1a1a2e] to-[#0f0f1a] font-orbitron text-white relative overflow-x-hidden">
+    <div className="lottery-container min-h-screen flex flex-col bg-linear-to-br from-[#0a0a0f] via-[#1a1a2e] to-[#0f0f1a] font-orbitron text-white relative overflow-x-hidden">
       <div className="scanline" />
       <div className="grid-bg" />
 
@@ -591,7 +587,7 @@ export function Home() {
       </div>
 
       {/* Main Content */}
-      <main className="p-3 md:p-4 px-4 md:px-8 max-w-225 mx-auto">
+      <main className="flex-1 p-3 md:p-4 px-4 md:px-8 max-w-225 mx-auto w-full">
         {/* Round Info & Timer */}
         <div className="text-center mb-2">
           {isLoading ? (
@@ -695,7 +691,8 @@ export function Home() {
               return (
                 <div key={digit}>
                   <div
-                    className="flex flex-col items-center rounded-2xl md:rounded-3xl py-2 md:py-2 px-1 md:px-1 pb-2"
+                    className="flex flex-col items-center rounded-2xl md:rounded-3xl py-2 md:py-2 px-1 md:px-1 pb-2 cursor-pointer"
+                    onClick={() => inputRefs.current[digit]?.focus()}
                     style={{
                       background: hasBet ? `${DIGIT_COLORS[digit]}22` : '#15151f',
                       border: `2px solid ${hasBet ? DIGIT_COLORS[digit] : '#222'}`
@@ -711,6 +708,7 @@ export function Home() {
                       {digit}
                     </div>
                     <input
+                      ref={el => { inputRefs.current[digit] = el; }}
                       type="text"
                       inputMode="numeric"
                       pattern="[0-9]*"
@@ -1194,7 +1192,10 @@ export function Home() {
                       : { roundNumber: bet.roundNumber, winningDigit: null };
                     const isWinner = bet.won === true;
                     const isLoser = bet.won === false;
-                    const isOpen = !isWinner && !isLoser;
+
+                    // Refunded bets are not "open" - they're cancelled
+                    const isRefunded = bet.paymentStatus === 'refunded';
+                    const isPending = !isWinner && !isLoser && !isRefunded && bet.paymentStatus === 'paid';
 
                     return (
                       <div
@@ -1202,18 +1203,18 @@ export function Home() {
                         className="flex items-center gap-3 px-4 py-3 rounded-xl relative group"
                         style={{
                           background: index === 0
-                            ? isWinner ? 'linear-gradient(135deg, #00ff8815 0%, transparent 100%)' : isOpen ? 'linear-gradient(135deg, #ffd70015 0%, transparent 100%)' : 'rgba(255,255,255,0.02)'
+                            ? isWinner ? 'linear-gradient(135deg, #00ff8815 0%, transparent 100%)' : isPending ? 'linear-gradient(135deg, #ffd70015 0%, transparent 100%)' : 'rgba(255,255,255,0.02)'
                             : 'rgba(255,255,255,0.02)',
                           border: index === 0
-                            ? isWinner ? '1px solid #00ff8833' : isOpen ? '1px solid #ffd70033' : '1px solid transparent'
+                            ? isWinner ? '1px solid #00ff8833' : isPending ? '1px solid #ffd70033' : '1px solid transparent'
                             : '1px solid transparent'
                         }}
                       >
                         {/* Result badge */}
                         <span className={`text-sm font-orbitron font-bold w-12 shrink-0 ${
-                          isWinner ? 'text-green-400' : isOpen ? 'text-yellow-400' : 'text-gray-500'
+                          isWinner ? 'text-green-400' : isPending ? 'text-yellow-400' : isRefunded ? 'text-blue-400' : 'text-gray-500'
                         }`}>
-                          {isWinner ? 'WIN' : isOpen ? 'OPEN' : 'LOSS'}
+                          {isWinner ? 'WIN' : isPending ? 'OPEN' : isRefunded ? 'RFND' : 'LOSS'}
                         </span>
 
                         {/* Divider */}
