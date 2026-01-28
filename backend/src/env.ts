@@ -9,8 +9,9 @@ export const config = {
   mockMode: process.env.MOCK_MODE === 'true',
 
   // Agent
-  agentNametag: process.env.AGENT_NAMETAG || 'lottery-agent',
+  agentNametag: process.env.AGENT_NAMETAG || 'lotterybet',
   agentPrivateKey: process.env.AGENT_PRIVATE_KEY || '',
+  agentMnemonic: process.env.AGENT_MNEMONIC || '',
 
   // Nostr
   nostrRelayUrl: process.env.NOSTR_RELAY_URL || 'wss://nostr-relay.testnet.unicity.network',
@@ -32,6 +33,7 @@ export const config = {
 
   // Data
   dataDir: process.env.DATA_DIR || './data',
+  trustBasePath: process.env.TRUSTBASE_PATH || './dist/trustbase-testnet.json',
 
   // CORS
   corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174').split(

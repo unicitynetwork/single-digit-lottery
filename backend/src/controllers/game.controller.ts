@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { GameService } from '../services/game.service.js';
-import { nostrService } from '../services/index.js';
+import { sphereService } from '../services/index.js';
 import { IBetItem } from '../models/game.model.js';
 import { config } from '../env.js';
 
@@ -15,7 +15,7 @@ export class GameController {
         return;
       }
 
-      const result = await nostrService.validateNametag(nametag);
+      const result = await sphereService.validateNametag(nametag);
 
       if (result.valid) {
         res.json({ success: true, data: { nametag, pubkey: result.pubkey } });

@@ -9,7 +9,7 @@ import {
   IBet,
   IBetItem,
 } from '../models/game.model.js';
-import { nostrService } from './index.js';
+import { sphereService } from './index.js';
 import { config } from '../env.js';
 
 export class GameService {
@@ -113,7 +113,7 @@ export class GameService {
     const totalAmount = bets.reduce((sum, bet) => sum + bet.amount, 0);
 
     // Create invoice via Nostr (pass bets and roundNumber for validation)
-    const invoice = await nostrService.createInvoice(
+    const invoice = await sphereService.createInvoice(
       userNametag,
       totalAmount,
       bets,
@@ -275,7 +275,7 @@ export class GameService {
         `[GameService] Refunding ${bet.totalAmount} UCT to @${bet.userNametag}: ${reason}`
       );
 
-      const transfer = await nostrService.sendTokens(bet.userNametag, bet.totalAmount);
+      const transfer = await sphereService.sendTokens(bet.userNametag, bet.totalAmount);
       bet.refundTxId = transfer.transferId;
       await bet.save();
 
@@ -479,7 +479,7 @@ export class GameService {
         bet.payoutStatus = 'sent';
         await bet.save();
 
-        const transfer = await nostrService.sendTokens(bet.userNametag, bet.winnings);
+        const transfer = await sphereService.sendTokens(bet.userNametag, bet.winnings);
 
         bet.payoutTxId = transfer.transferId;
         bet.payoutStatus = 'confirmed';
@@ -617,7 +617,7 @@ export class GameService {
       // eslint-disable-next-line no-console
       console.log(`[GameService] Withdrawing ${withdrawAmount} UCT to @${developerNametag}`);
 
-      const transfer = await nostrService.sendTokens(developerNametag, withdrawAmount);
+      const transfer = await sphereService.sendTokens(developerNametag, withdrawAmount);
 
       // Update commission record
       await Commission.findOneAndUpdate(

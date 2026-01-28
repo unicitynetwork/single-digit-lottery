@@ -19,14 +19,12 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@unicitylabs/nostr-js-sdk": "^0.3.2",
-    "@unicitylabs/state-transition-sdk": "^1.6.0",
+    "@unicitylabs/sphere-sdk": "file:../../sphere-sdk",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "helmet": "^8.1.0",
-    "mongoose": "^9.1.5",
-    "ws": "^8.18.0"
+    "mongoose": "^9.1.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

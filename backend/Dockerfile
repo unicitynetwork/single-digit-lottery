@@ -15,6 +15,9 @@ COPY . .
 # Build TypeScript
 RUN npm run build
 
+# Copy trustbase file to dist (TypeScript doesn't copy JSON files)
+RUN cp src/trustbase-testnet.json dist/
+
 # =============================================================================
 # Production stage
 # =============================================================================

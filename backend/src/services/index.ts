@@ -1,42 +1,33 @@
 import { config } from '../env.js';
-import { IdentityService, IdentityConfig } from './identity.service.js';
-import { NostrService, NostrConfig } from './nostr.service.js';
+import { SphereService, SphereConfig } from './sphere.service.js';
 import { RoundScheduler } from './round-scheduler.service.js';
 
 // eslint-disable-next-line no-console
-console.log(
-  `[Config] MOCK_MODE: ${config.mockMode}, ROUND_DURATION: ${config.roundDurationSeconds}s`
-);
+console.log(`[Config] ROUND_DURATION: ${config.roundDurationSeconds}s`);
 
-const identityConfig: IdentityConfig = {
+const sphereConfig: SphereConfig = {
+  network: 'testnet',
   dataDir: config.dataDir,
+  tokensDir: `${config.dataDir}/tokens`,
   nametag: config.agentNametag,
-  aggregatorUrl: config.aggregatorUrl,
+  mnemonic: config.agentMnemonic || undefined,
   aggregatorApiKey: config.aggregatorApiKey,
-  relayUrl: config.nostrRelayUrl,
-  privateKeyHex: config.agentPrivateKey || undefined,
-};
-
-const nostrConfig: NostrConfig = {
-  relayUrl: config.nostrRelayUrl,
-  dataDir: config.dataDir,
-  paymentTimeoutSeconds: config.paymentTimeoutSeconds,
+  trustBasePath: config.trustBasePath,
   coinId: config.coinId,
-  mockMode: config.mockMode,
+  paymentTimeoutSeconds: config.paymentTimeoutSeconds,
+  debug: config.nodeEnv === 'development',
 };
 
 // Create service instances
-export const identityService = new IdentityService(identityConfig);
-export const nostrService = new NostrService(nostrConfig, identityService);
+export const sphereService = new SphereService(sphereConfig);
 export const roundScheduler = new RoundScheduler(config.roundDurationSeconds);
 
 // Initialize services
 export async function initializeServices(): Promise<void> {
-  await identityService.initialize();
-  await nostrService.initialize();
+  await sphereService.initialize();
 
-  // Set up payment confirmation callback - auto-confirm payments via Nostr
-  nostrService.setPaymentConfirmedCallback(async (paymentInfo) => {
+  // Set up payment confirmation callback - auto-confirm payments via Sphere SDK
+  sphereService.setPaymentConfirmedCallback(async (paymentInfo) => {
     const { invoiceId, txId, tokenCount, totalAmount, receivedAmounts } = paymentInfo;
     // eslint-disable-next-line no-console
     console.log(
@@ -68,4 +59,4 @@ export async function initializeServices(): Promise<void> {
   await roundScheduler.start();
 }
 
-export { IdentityService, NostrService, RoundScheduler };
+export { SphereService, RoundScheduler };
