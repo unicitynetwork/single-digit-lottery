@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import mongoose from 'mongoose';
 import { vi } from 'vitest';
 
-// Mock nostrService
+// Mock sphereService
 vi.mock('../src/services/index.js', () => ({
-  nostrService: {
+  sphereService: {
     createInvoice: vi.fn().mockResolvedValue({
       invoiceId: 'mock-invoice',
       amount: 100,

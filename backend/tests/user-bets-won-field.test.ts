@@ -4,9 +4,9 @@ import { Application } from 'express';
 import { createTestApp, connectTestDB, disconnectTestDB, clearTestDB } from './setup.js';
 import mongoose from 'mongoose';
 
-// Mock nostrService with sentAmounts
+// Mock sphereService with sentAmounts
 vi.mock('../src/services/index.js', () => ({
-  nostrService: {
+  sphereService: {
     createInvoice: vi.fn().mockImplementation(async (_userNametag: string, amount: number) => ({
       invoiceId: `invoice-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       amount,

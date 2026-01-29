@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import mongoose from 'mongoose';
 import { vi } from 'vitest';
 
-// Mock nostrService before importing GameService
+// Mock sphereService before importing GameService
 vi.mock('../src/services/index.js', () => ({
-  nostrService: {
+  sphereService: {
     createInvoice: vi.fn().mockImplementation(async (_userNametag: string, amount: number) => ({
       invoiceId: `invoice-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       amount,

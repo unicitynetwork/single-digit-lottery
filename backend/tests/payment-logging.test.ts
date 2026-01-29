@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import mongoose from 'mongoose';
 
-// Mock nostrService with sentAmounts support
+// Mock sphereService with sentAmounts support
 vi.mock('../src/services/index.js', () => ({
-  nostrService: {
+  sphereService: {
     createInvoice: vi.fn().mockImplementation(async (_userNametag: string, amount: number) => ({
       invoiceId: `invoice-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       amount,

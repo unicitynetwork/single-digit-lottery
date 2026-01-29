@@ -4,9 +4,9 @@ import { Application } from 'express';
 import { createTestApp, connectTestDB, disconnectTestDB, clearTestDB } from './setup.js';
 import { vi } from 'vitest';
 
-// Mock nostrService
+// Mock sphereService
 vi.mock('../src/services/index.js', () => ({
-  nostrService: {
+  sphereService: {
     createInvoice: vi.fn().mockImplementation(async (_userNametag: string, amount: number) => ({
       invoiceId: `test-invoice-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       amount,
