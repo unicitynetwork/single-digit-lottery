@@ -139,7 +139,9 @@ export class SphereService {
       console.log(`[SphereService] ✓ Nametag NFT @${existingNametag.name} ready`);
     } else {
       // eslint-disable-next-line no-console
-      console.log(`[SphereService] Nametag @${this.config.nametag} registered (NFT minting handled by Sphere.init)`);
+      console.log(
+        `[SphereService] Nametag @${this.config.nametag} registered (NFT minting handled by Sphere.init)`
+      );
     }
 
     // Subscribe to incoming transfers
@@ -169,7 +171,10 @@ export class SphereService {
 
     // Try to match with pending payment
     // eslint-disable-next-line no-console
-    console.log(`[SphereService] Pending payment requestIds:`, Array.from(this.pendingPayments.keys()));
+    console.log(
+      `[SphereService] Pending payment requestIds:`,
+      Array.from(this.pendingPayments.keys())
+    );
     for (const [requestId, pending] of this.pendingPayments) {
       if (pending.confirmed) continue;
 
@@ -194,14 +199,18 @@ export class SphereService {
         }
         const amount = BigInt(amountStr);
         // eslint-disable-next-line no-console
-        console.log(`[SphereService] Token amount: ${amount.toString()} (${toHumanReadable(amount.toString())} UCT)`);
+        console.log(
+          `[SphereService] Token amount: ${amount.toString()} (${toHumanReadable(amount.toString())} UCT)`
+        );
         totalAmount += amount;
         receivedAmounts.push(parseFloat(toHumanReadable(amount.toString())));
       }
 
       const expectedAmount = toSmallestUnit(pending.amount.toString());
       // eslint-disable-next-line no-console
-      console.log(`[SphereService] Matching: received=${totalAmount.toString()} vs expected=${expectedAmount} (pending.amount=${pending.amount} UCT)`);
+      console.log(
+        `[SphereService] Matching: received=${totalAmount.toString()} vs expected=${expectedAmount} (pending.amount=${pending.amount} UCT)`
+      );
       const tolerance = BigInt(1e14); // 0.0001 UCT tolerance
 
       if (totalAmount >= BigInt(expectedAmount) - tolerance) {
@@ -232,7 +241,10 @@ export class SphereService {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private handlePaymentRequestResponse(response: any): void {
     // eslint-disable-next-line no-console
-    console.log(`[SphereService] Payment request response received:`, JSON.stringify(response, null, 2));
+    console.log(
+      `[SphereService] Payment request response received:`,
+      JSON.stringify(response, null, 2)
+    );
 
     // eslint-disable-next-line no-console
     console.log(`[SphereService] Pending payments keys:`, Array.from(this.pendingPayments.keys()));
@@ -245,7 +257,9 @@ export class SphereService {
     if (!pending) {
       for (const [key, p] of this.pendingPayments) {
         // eslint-disable-next-line no-console
-        console.log(`[SphereService] Checking pending: key=${key}, invoiceId=${p.invoiceId}, requestId=${p.requestId}`);
+        console.log(
+          `[SphereService] Checking pending: key=${key}, invoiceId=${p.invoiceId}, requestId=${p.requestId}`
+        );
         // Match by invoiceId or if there's only one pending payment
         if (p.requestId === response.requestId || p.invoiceId === response.requestId) {
           pending = p;
@@ -257,12 +271,17 @@ export class SphereService {
 
     if (!pending) {
       // eslint-disable-next-line no-console
-      console.log('[SphereService] No pending payment found for response.requestId:', response.requestId);
+      console.log(
+        '[SphereService] No pending payment found for response.requestId:',
+        response.requestId
+      );
       return;
     }
 
     // eslint-disable-next-line no-console
-    console.log(`[SphereService] Found pending payment: invoiceId=${pending.invoiceId}, matchedKey=${matchedKey}`);
+    console.log(
+      `[SphereService] Found pending payment: invoiceId=${pending.invoiceId}, matchedKey=${matchedKey}`
+    );
 
     if (response.responseType === 'paid' && response.transferId) {
       pending.confirmed = true;
@@ -421,7 +440,9 @@ export class SphereService {
 
     this.pendingPayments.set(requestId, pending);
     // eslint-disable-next-line no-console
-    console.log(`[SphereService] Added pending payment: requestId=${requestId}, amount=${amount} UCT, expires in ${this.config.paymentTimeoutSeconds}s`);
+    console.log(
+      `[SphereService] Added pending payment: requestId=${requestId}, amount=${amount} UCT, expires in ${this.config.paymentTimeoutSeconds}s`
+    );
     // eslint-disable-next-line no-console
     console.log(`[SphereService] Total pending payments: ${this.pendingPayments.size}`);
 
